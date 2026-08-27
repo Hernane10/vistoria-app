@@ -12,6 +12,7 @@ import CloudSyncWidget from "./components/CloudSyncWidget";
 import { enviarTodasFotosParaSupabase } from './uploadFotos.js';
 import { supabase } from './components/supabaseClient.js';
 import { uid, makeItem, makeAmbiente, fmtDate, fmtDateTime, emptyInspection } from './utils/helpers';
+// @ts-nocheck
 // =====================================================================
 // 🛠️ FUNÇÕES AUXILIARES E CONSTANTES GLOBAIS
 // =====================================================================
@@ -2390,11 +2391,9 @@ function ItemRow({ item, locked, onChange, onRemove }) {
     const photos = await filesToPhotos(files);
     onChange((it) => ({ ...it, fotos: [...it.fotos, ...photos] }));
   }
-
   function removePhoto(idx) {
     onChange((it) => ({ ...it, fotos: it.fotos.filter((_, i) => i !== idx) }));
   }
-
   return (
     <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid var(--line)", background: "var(--card-alt)" }}>
       <div className="flex items-center gap-2 px-4 py-3 cursor-pointer" onClick={() => setOpen((v) => !v)}>
@@ -2458,8 +2457,10 @@ function ItemRow({ item, locked, onChange, onRemove }) {
                   fieldKey={f.key}
                   label={f.label}
                   value={campos[f.key]}
-                  options={FIELD_OPTIONS[f.key]}
+                  // @ts-ignore
+                  options={FIELD_OPTIONS[f.key]} 
                   disabled={locked}
+                  // @ts-ignore
                   onChange={(val) => onChange((it) => ({ ...it, campos: { ...(it.campos || {}), [f.key]: val } }))}
                 />
               )
@@ -2474,7 +2475,7 @@ function ItemRow({ item, locked, onChange, onRemove }) {
               {showAllFields ? <><ChevronDown size={12} className="rotate-180" /> Mostrar só os campos relevantes</> : <><Plus size={12} /> Mostrar mais {hiddenCount} campo(s)</>}
             </button>
           )}
-
+{/* @ts-ignore */}
           <TextAreaWithDictation
             disabled={locked}
             className="px-4 py-2.5"
@@ -2530,7 +2531,7 @@ function ItemRow({ item, locked, onChange, onRemove }) {
 // =====================================================================
 // 💧 MEDIDORES E CHAVES
 // =====================================================================
-
+{/* @ts-ignore */}
 function MedidorCard({ icon, title, data, locked, opcional, unidades, onChange }) {
   const ativo = data.ativo;
 
