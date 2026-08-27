@@ -9,7 +9,28 @@ import {
 } from "lucide-react";
 import { storage } from "./lib/storage";
 import CloudSyncWidget from "./components/CloudSyncWidget";
+import { enviarTodasFotosParaSupabase } from './uploadFotos.js';
+import { supabase } from './components/supabaseClient.js';
 
+// =====================================================================
+// 🛠️ FUNÇÕES AUXILIARES E CONSTANTES GLOBAIS
+// =====================================================================
+
+function getUrlFoto(caminho) {
+  if (!caminho) return '';
+  // Se for objeto com .src → pega o valor de .src
+  if (typeof caminho === 'object') {
+    if (caminho.src) caminho = caminho.src;
+    else return '';
+  }
+  // Se já é link completo → usa direto
+  if (caminho.startsWith('http')) return caminho;
+  // Se é base64 (foto local não enviada ainda) → mostra direto
+  if (caminho.startsWith('data:image')) return caminho;
+  // Gera o link público do Supabase
+  const { data } = supabase.storage.from('vistoria_fotos').getPublicUrl(caminho);
+  return data?.publicUrl || caminho;
+}
 const LightboxContext = createContext(() => {});
 
 const TEMPLATES = {
@@ -39,9 +60,7 @@ const ITEM_FIELD_DEFS = [
   { key: "quantidade", label: "Quantidade", type: "number" },
 ];
 
-// Pre-filled suggestion lists per technical field, VistoHouse-style: the person
-// can pick a common option, or use "+ Adicionar" to add their own (saved for
-// next time), edit/remove options too.
+// Pre-filled suggestion lists per technical field
 const FIELD_OPTIONS = {
   alvenaria: ["Tijolo aparente", "Reboco liso", "Reboco áspero", "Drywall (gesso acartonado)", "Bloco de concreto", "Alvenaria estrutural", "Não se aplica"],
   revestimento: ["Cerâmica", "Porcelanato", "Azulejo", "Pastilha", "Textura", "Papel de parede", "Laminado", "Granito", "Mármore", "Não se aplica"],
@@ -53,10 +72,7 @@ const FIELD_OPTIONS = {
   cor: ["Branco", "Bege", "Cinza", "Preto", "Amarelo", "Azul", "Verde", "Vermelho", "Marrom", "Rosa", "Roxo", "Multicolor"],
 };
 
-// Which technical fields actually make sense for a given item — e.g. a "Pia"
-// doesn't need Alvenaria/Pintura, but does need Material/Funcionamento. Matched
-// by keyword against the item name so it also works for custom/renamed items;
-// falls back to a small universal set when nothing matches.
+// Which technical fields actually make sense for a given item
 const FIELD_RULES = [
   { keywords: ["piso", "parede", "teto", "rodapé", "rodape", "alvenaria", "estrutura", "muro", "cobertura"], fields: ["alvenaria", "revestimento", "acabamento", "pintura", "cor"] },
   { keywords: ["sanca"], fields: ["sanca", "acabamento", "pintura", "cor"] },
@@ -87,98 +103,26 @@ const CHAVE_TIPOS = [
   { key: "tags", label: "Tags" },
 ];
 
+// =====================================================================
+// 🏠 MODELOS DE IMÓVEIS
+// =====================================================================
+
 const PROPERTY_MODELS = {
-  Kitnet: {
-    label: "Kitnet",
-    descricao: "Ambiente integrado, ideal para vistorias rápidas de imóveis compactos.",
-    ambientes: {
-      "Ambiente Integrado (Sala/Quarto)": ["Teto", "Parede", "Piso", "Rodapé", "Porta", "Janela", "Tomadas", "Iluminação", "Armário embutido"],
-      "Cozinha": TEMPLATES["Cozinha"],
-      "Banheiro": TEMPLATES["Banheiro"],
-    },
-  },
-  Casa: {
-    label: "Casa",
-    descricao: "Modelo completo com área externa, ideal para casas térreas ou sobrados.",
-    ambientes: {
-      "Sala de Estar": TEMPLATES["Sala de Estar"],
-      "Cozinha": TEMPLATES["Cozinha"],
-      "Quarto 1": TEMPLATES["Quarto"],
-      "Quarto 2": TEMPLATES["Quarto"],
-      "Banheiro": TEMPLATES["Banheiro"],
-      "Lavabo": TEMPLATES["Lavabo"],
-      "Área de Serviço": TEMPLATES["Área de Serviço"],
-      "Corredor/Hall": TEMPLATES["Corredor/Hall"],
-      "Área Externa": TEMPLATES["Área Externa"],
-    },
-  },
-  Apartamento: {
-    label: "Apartamento",
-    descricao: "Modelo padrão para apartamentos residenciais.",
-    ambientes: {
-      "Sala de Estar": TEMPLATES["Sala de Estar"],
-      "Cozinha": TEMPLATES["Cozinha"],
-      "Quarto 1": TEMPLATES["Quarto"],
-      "Banheiro": TEMPLATES["Banheiro"],
-      "Área de Serviço": TEMPLATES["Área de Serviço"],
-      "Corredor/Hall": TEMPLATES["Corredor/Hall"],
-    },
-  },
-  Comercial: {
-    label: "Comercial",
-    descricao: "Modelo para salas comerciais, escritórios e lojas.",
-    ambientes: {
-      "Recepção": ["Teto", "Parede", "Piso", "Porta", "Iluminação", "Tomadas"],
-      "Sala Principal": ["Teto", "Parede", "Piso", "Janela", "Iluminação", "Tomadas", "Ar-condicionado"],
-      "Banheiro": TEMPLATES["Banheiro"],
-      "Copa/Kitchenette": ["Piso", "Pia", "Bancada", "Tomadas", "Iluminação"],
-      "Depósito": ["Piso", "Parede", "Teto", "Iluminação", "Prateleiras"],
-    },
-  },
-  "Checklist Completo": {
-    label: "Checklist Completo",
-    descricao: "Roteiro amplo com os itens mais cobrados em vistorias — estrutura, cômodos, medidores, chaves e segurança (60 itens).",
-    ambientes: {
-      "Estrutura Geral": [
-        "Paredes (rachaduras/trincas)", "Pintura", "Piso", "Rodapé", "Teto (infiltração/mofo)",
-        "Portas", "Fechaduras e trincos", "Dobradiças", "Janelas", "Vidros",
-        "Iluminação", "Tomadas", "Interruptores", "Quadro de luz",
-      ],
-      "Cozinha": [
-        "Pia (vazamentos)", "Torneiras", "Escoamento/ralo", "Gabinete e armários", "Azulejo",
-        "Exaustor/Coifa", "Ponto de gás", "Tomadas", "Piso (impermeabilização)",
-      ],
-      "Banheiro": [
-        "Vaso sanitário (descarga)", "Vedação da base do vaso", "Box (vidro/trilho)", "Chuveiro e registro",
-        "Pia/bancada", "Ralos", "Espelho", "Ventilação", "Azulejos",
-      ],
-      "Quartos": [
-        "Armário embutido", "Portas", "Janelas (vedação)", "Piso (nivelamento/ruído)",
-      ],
-      "Área de Serviço": [
-        "Tanque", "Torneira do tanque", "Ponto para máquina de lavar", "Ralo/esgoto",
-      ],
-      "Área Externa / Garagem": [
-        "Portão", "Controle do portão", "Piso da garagem", "Muros", "Jardim/quintal",
-      ],
-      "Medidores e Instalações": [
-        "Medidor de água (leitura)", "Medidor de energia (leitura)", "Medidor de gás", "Registro geral de água",
-      ],
-      "Chaves e Acessos": [
-        "Chaves de entrada", "Chaves da garagem", "Controles", "Tags/cartões de acesso",
-      ],
-      "Segurança": [
-        "Extintores (validade)", "Detectores de fumaça", "Grades e proteções de janelas",
-      ],
-    },
-  },
+  Kitnet: { label: "Kitnet", descricao: "Ambiente integrado, ideal para vistorias rápidas de imóveis compactos.", ambientes: { "Ambiente Integrado (Sala/Quarto)": ["Teto", "Parede", "Piso", "Rodapé", "Porta", "Janela", "Tomadas", "Iluminação", "Armário embutido"], "Cozinha": TEMPLATES["Cozinha"], "Banheiro": TEMPLATES["Banheiro"] } },
+  Casa: { label: "Casa", descricao: "Modelo completo com área externa, ideal para casas térreas ou sobrados.", ambientes: { "Sala de Estar": TEMPLATES["Sala de Estar"], "Cozinha": TEMPLATES["Cozinha"], "Quarto 1": TEMPLATES["Quarto"], "Quarto 2": TEMPLATES["Quarto"], "Banheiro": TEMPLATES["Banheiro"], "Lavabo": TEMPLATES["Lavabo"], "Área de Serviço": TEMPLATES["Área de Serviço"], "Corredor/Hall": TEMPLATES["Corredor/Hall"], "Área Externa": TEMPLATES["Área Externa"] } },
+  Apartamento: { label: "Apartamento", descricao: "Modelo padrão para apartamentos residenciais.", ambientes: { "Sala de Estar": TEMPLATES["Sala de Estar"], "Cozinha": TEMPLATES["Cozinha"], "Quarto 1": TEMPLATES["Quarto"], "Banheiro": TEMPLATES["Banheiro"], "Área de Serviço": TEMPLATES["Área de Serviço"], "Corredor/Hall": TEMPLATES["Corredor/Hall"] } },
+  Comercial: { label: "Comercial", descricao: "Modelo para salas comerciais, escritórios e lojas.", ambientes: { "Recepção": ["Teto", "Parede", "Piso", "Porta", "Iluminação", "Tomadas"], "Sala Principal": ["Teto", "Parede", "Piso", "Janela", "Iluminação", "Tomadas", "Ar-condicionado"], "Banheiro": TEMPLATES["Banheiro"], "Copa/Kitchenette": ["Piso", "Pia", "Bancada", "Tomadas", "Iluminação"], "Depósito": ["Piso", "Parede", "Teto", "Iluminação", "Prateleiras"] } },
+  "Checklist Completo": { label: "Checklist Completo", descricao: "Roteiro amplo com os itens mais cobrados em vistorias.", ambientes: { "Estrutura Geral": ["Paredes (rachaduras/trincas)", "Pintura", "Piso", "Rodapé", "Teto (infiltração/mofo)", "Portas", "Fechaduras e trincos", "Dobradiças", "Janelas", "Vidros", "Iluminação", "Tomadas", "Interruptores", "Quadro de luz"], "Cozinha": ["Pia (vazamentos)", "Torneiras", "Escoamento/ralo", "Gabinete e armários", "Azulejo", "Exaustor/Coifa", "Ponto de gás", "Tomadas", "Piso (impermeabilização)"], "Banheiro": ["Vaso sanitário (descarga)", "Vedação da base do vaso", "Box (vidro/trilho)", "Chuveiro e registro", "Pia/bancada", "Ralos", "Espelho", "Ventilação", "Azulejos"], "Quartos": ["Armário embutido", "Portas", "Janelas (vedação)", "Piso (nivelamento/ruído)"], "Área de Serviço": ["Tanque", "Torneira do tanque", "Ponto para máquina de lavar", "Ralo/esgoto"], "Área Externa / Garagem": ["Portão", "Controle do portão", "Piso da garagem", "Muros", "Jardim/quintal"], "Medidores e Instalações": ["Medidor de água (leitura)", "Medidor de energia (leitura)", "Medidor de gás", "Registro geral de água"], "Chaves e Acessos": ["Chaves de entrada", "Chaves da garagem", "Controles", "Tags/cartões de acesso"], "Segurança": ["Extintores (validade)", "Detectores de fumaça", "Grades e proteções de janelas"] } },
 };
 
+// =====================================================================
+// 🧰 CRIAÇÃO DE OBJETOS E FUNÇÕES UTILITÁRIAS
+// =====================================================================
+
+const uid = () => Math.random().toString(36).slice(2, 10);
+
 function makeItem(nome) {
-  return {
-    id: uid(), nome, estado: "Bom", semTeste: false, observacoes: "", temDano: false, descricaoDano: "", fotos: [],
-    campos: Object.fromEntries(ITEM_FIELD_DEFS.map((f) => [f.key, ""])),
-  };
+  return { id: uid(), nome, estado: "Bom", semTeste: false, observacoes: "", temDano: false, descricaoDano: "", fotos: [], campos: Object.fromEntries(ITEM_FIELD_DEFS.map((f) => [f.key, ""])) };
 }
 
 function makeAmbiente(nome, itensNomes = []) {
@@ -190,8 +134,6 @@ function ambientesFromModel(modelKeyOrObj) {
   if (!model || !model.ambientes) return [];
   return Object.entries(model.ambientes).map(([nome, itens]) => makeAmbiente(nome, itens));
 }
-
-const uid = () => Math.random().toString(36).slice(2, 10);
 
 function fileToDataURL(file) {
   return new Promise((resolve, reject) => {
@@ -212,17 +154,13 @@ function getImageDimensions(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve({ width: img.naturalWidth, height: img.naturalHeight });
-    };
+    img.onload = () => { URL.revokeObjectURL(url); resolve({ width: img.naturalWidth, height: img.naturalHeight }); };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Não foi possível ler a imagem.")); };
     img.src = url;
   });
 }
 
-// Resizes to at most 1200px on the longest side and re-encodes as JPEG at 80%
-// quality — done entirely in the browser via <canvas>, no upload needed.
+// Resizes to at most 1200px on the longest side and re-encodes as JPEG at 80% quality
 function compressImageFile(file, maxDim = 1200, quality = 0.8) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -237,46 +175,32 @@ function compressImageFile(file, maxDim = 1200, quality = 0.8) {
       canvas.height = h;
       const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0, w, h);
-      canvas.toBlob(
-        (blob) => {
+      canvas.toBlob((blob) => {
           if (!blob) { reject(new Error("Falha ao comprimir imagem.")); return; }
           resolve(new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }));
-        },
-        "image/jpeg",
-        quality
-      );
+        }, "image/jpeg", quality);
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Não foi possível ler a imagem.")); };
     img.src = url;
   });
 }
 
-// Decides whether an image is worth compressing. If it's already at/under the
-// 1200px target and already a fairly small file, compressing it again would
-// only degrade quality for no size benefit — so we ask before doing it.
+// Decides whether an image is worth compressing.
 async function maybeCompressImage(file) {
   if (!file.type.startsWith("image/") || file.type === "image/gif") return file;
   try {
     const { width, height } = await getImageDimensions(file);
     const alreadySmallDim = Math.max(width, height) <= 1200;
     const alreadySmallFile = file.size <= 250 * 1024;
-    if (alreadySmallDim && alreadySmallFile) {
-      const proceed = window.confirm(
-        `A imagem "${file.name}" já parece pequena ou de baixa qualidade (${width}×${height}px, ${(file.size / 1024).toFixed(0)} KB).\n\nComprimir mesmo assim para 1200px / 80%? (Cancelar mantém a imagem original sem alterações)`
-      );
-      if (!proceed) return file;
-    }
     const compressed = await compressImageFile(file);
     return compressed.size < file.size ? compressed : file;
   } catch {
-    return file; // if anything goes wrong reading it, just use the original untouched
+    return file;
   }
 }
 
 async function filesToPhotos(files) {
-  const processed = await Promise.all(
-    files.map((f) => (f.type.startsWith("image/") ? maybeCompressImage(f) : f))
-  );
+  const processed = await Promise.all(files.map((f) => (f.type.startsWith("image/") ? maybeCompressImage(f) : f)));
   const urls = await Promise.all(processed.map(fileToDataURL));
   const now = new Date().toISOString();
   return urls.map((src, i) => ({ src, date: now, type: mediaTypeOf(files[i]), marcas: [] }));
@@ -299,12 +223,135 @@ function fmtDateTime(iso) {
   return `${dd}/${mm}/${yy} ${hh}:${mi}`;
 }
 
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+function todayISO() { return new Date().toISOString().slice(0, 10); }
+
+function enderecoCompleto(imovel) {
+  if (!imovel) return "";
+  const linha1 = [imovel.endereco, imovel.numero && `nº ${imovel.numero}`].filter(Boolean).join(", ");
+  const linha2 = [imovel.bairro, imovel.cidade, imovel.estado].filter(Boolean).join(" - ");
+  const comp = imovel.complemento ? ` (${imovel.complemento})` : "";
+  return [linha1, linha2].filter(Boolean).join(" - ") + comp;
 }
 
-// Two explicit actions: take a photo now (camera) or upload an existing image.
-// Media capture/upload: photo (camera or gallery), video, and audio (record or upload).
+function fichaText(inspection) {
+  return ["Ficha rápida do imóvel — VistorIA", `Endereço: ${enderecoCompleto(inspection.imovel) || "—"}`, `Tipo: ${inspection.imovel.tipoImovel} (${inspection.mobiliario})`, inspection.imovel.metragem ? `Metragem: ${inspection.imovel.metragem}` : null, `Proprietário: ${inspection.imovel.proprietario || "—"}`, `Inquilino: ${inspection.imovel.inquilino || "—"}`, `Última vistoria: ${fmtDate(inspection.dataVistoria)} (${inspection.tipo})`, `Status: ${inspection.status}`].filter(Boolean).join("\n");
+}
+
+function qrCodeUrl(text, size = 220) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`;
+}
+
+function fmtDate(iso) {
+  if (!iso) return "—";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function emptyMedidor(opcional = false, unidadePadrao = "") {
+  return { ativo: !opcional, numero: "", leitura: "", unidade: unidadePadrao, concessionaria: "", marca: "", observacoes: "", fotos: [] };
+}
+
+function emptyChave() { return { quantidade: "", observacoes: "", fotos: [] }; }
+
+function emptyInspection() {
+  return {
+    id: uid(), tipo: "Entrada", dataVistoria: todayISO(), vistoriador: "",
+    imovel: { cep: "", endereco: "", numero: "", bairro: "", cidade: "", estado: "", complemento: "", metragem: "", proprietario: "", inquilino: "", tipoImovel: "Apartamento" },
+    mobiliario: "Vazio", status: "Em andamento", capaFoto: null, ambientes: [],
+    medidores: { agua: emptyMedidor(false, "m³"), energia: emptyMedidor(false, "kWh"), gas: emptyMedidor(true, "m³") },
+    chaves: { entrada: emptyChave(), garagem: emptyChave(), controle: emptyChave(), tags: emptyChave(), outras: [] },
+    signatures: { vistoriador: null, locador: null, locatario: null },
+    parecerTecnico: { texto: "", anexos: [] },
+    createdAt: Date.now(),
+  };
+}
+
+// =====================================================================
+// 💾 PERSISTÊNCIA DE DADOS
+// =====================================================================
+
+const STORAGE_INDEX_KEY = "insp-index";
+const inspKey = (id) => `insp:${id}`;
+
+async function storageLoadAll() {
+  try {
+    const idxRes = await storage.get(STORAGE_INDEX_KEY);
+    const ids = idxRes ? JSON.parse(idxRes.value) : [];
+    const results = await Promise.all(ids.map(async (id) => { try { const r = await storage.get(inspKey(id)); return r ? JSON.parse(r.value) : null; } catch { return null; } }));
+    return results.filter(Boolean).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  } catch { return []; }
+}
+
+async function storageSaveInspection(insp) { await storage.set(inspKey(insp.id), JSON.stringify(insp)); }
+async function storageSaveIndex(ids) { await storage.set(STORAGE_INDEX_KEY, JSON.stringify(ids)); }
+async function storageDeleteInspection(id, remainingIds) { await storage.delete(inspKey(id)).catch(() => {}); await storageSaveIndex(remainingIds); }
+
+// Merge older saved inspections with new defaults
+function withDefaults(insp) {
+  const base = emptyInspection();
+  const oldSig = insp.signatures || {};
+  return {
+    ...base, ...insp,
+    imovel: { ...base.imovel, ...(insp.imovel || {}) },
+    mobiliario: insp.mobiliario || base.mobiliario,
+    ambientes: (insp.ambientes || []).map((amb) => ({ ...amb, fotos: (amb.fotos || []).map(normalizePhoto), itens: (amb.itens || []).map((it) => ({ ...it, fotos: (it.fotos || []).map(normalizePhoto) })) })),
+    medidores: {
+      agua: { ...base.medidores.agua, ...(insp.medidores?.agua || {}), fotos: (insp.medidores?.agua?.fotos || []).map(normalizePhoto) },
+      energia: { ...base.medidores.energia, ...(insp.medidores?.energia || {}), fotos: (insp.medidores?.energia?.fotos || []).map(normalizePhoto) },
+      gas: { ...base.medidores.gas, ...(insp.medidores?.gas || {}), fotos: (insp.medidores?.gas?.fotos || []).map(normalizePhoto) },
+    },
+    chaves: {
+      entrada: { ...base.chaves.entrada, ...(insp.chaves?.entrada || {}), fotos: (insp.chaves?.entrada?.fotos || []).map(normalizePhoto) },
+      garagem: { ...base.chaves.garagem, ...(insp.chaves?.garagem || {}), fotos: (insp.chaves?.garagem?.fotos || []).map(normalizePhoto) },
+      controle: { ...base.chaves.controle, ...(insp.chaves?.controle || {}), fotos: (insp.chaves?.controle?.fotos || []).map(normalizePhoto) },
+      tags: { ...base.chaves.tags, ...(insp.chaves?.tags || {}), fotos: (insp.chaves?.tags?.fotos || []).map(normalizePhoto) },
+      outras: (insp.chaves?.outras || []).map((o) => ({ ...o, fotos: (o.fotos || []).map(normalizePhoto) })),
+    },
+    signatures: {
+      vistoriador: oldSig.vistoriador ?? null,
+      locador: oldSig.locador ?? null,
+      locatario: oldSig.locatario ?? oldSig.responsavel ?? null,
+    },
+    parecerTecnico: { texto: insp.parecerTecnico?.texto || "", anexos: insp.parecerTecnico?.anexos || [] },
+  };
+}
+
+function buildExampleInspection() {
+  const ambientes = ambientesFromModel("Apartamento");
+  const cozinha = ambientes.find((a) => a.nome === "Cozinha");
+  if (cozinha) {
+    const pia = cozinha.itens.find((i) => i.nome === "Pia");
+    if (pia) { pia.estado = "Regular"; pia.temDano = true; pia.descricaoDano = "Pequeno vazamento identificado no sifão."; pia.observacoes = "Recomenda-se reparo antes da próxima vistoria."; }
+  }
+  const sala = ambientes.find((a) => a.nome === "Sala de Estar");
+  if (sala) { const piso = sala.itens.find((i) => i.nome === "Piso"); if (piso) piso.observacoes = "Piso laminado em bom estado, sem riscos aparentes."; }
+  return {
+    tipo: "Entrada", dataVistoria: todayISO(), vistoriador: "Vistoriador Exemplo", mobiliario: "Mobiliado", capaFoto: null, ambientes,
+    imovel: { cep: "01310-100", endereco: "Avenida Paulista", numero: "1000", bairro: "Bela Vista", cidade: "São Paulo", estado: "SP", complemento: "Apto 52", metragem: "68 m²", proprietario: "Maria Souza", inquilino: "João Pereira", tipoImovel: "Apartamento" },
+    medidores: {
+      agua: { ativo: true, numero: "883421", leitura: "1245", unidade: "m³", concessionaria: "Sabesp", observacoes: "Leitura registrada no início da vistoria.", fotos: [] },
+      energia: { ativo: true, numero: "55219087", leitura: "08234", unidade: "kWh", concessionaria: "Enel", observacoes: "", fotos: [] },
+      gas: { ativo: false, numero: "", leitura: "", unidade: "", marca: "", observacoes: "", fotos: [] },
+    },
+    chaves: { entrada: { quantidade: "2", observacoes: "Chaves tetra" }, garagem: { quantidade: "1", observacoes: "" }, controle: { quantidade: "1", observacoes: "Controle do portão da garagem" }, tags: { quantidade: "2", observacoes: "Tags de acesso à portaria" }, outras: [] },
+  };
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function fmtFileSize(bytes) {
+  if (!bytes && bytes !== 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// =====================================================================
+// 📷 COMPONENTES DE MÍDIA E ANOTAÇÃO
+// =====================================================================
+
 function MediaPicker({ onAdd, multiple = true, small = false }) {
   const cameraRef = useRef(null);
   const galleryRef = useRef(null);
@@ -317,60 +364,33 @@ function MediaPicker({ onAdd, multiple = true, small = false }) {
     if (files.length) await onAdd(files);
     e.target.value = "";
   }
+  async function handleVideoRecorded(file) { setRecordingVideo(false); await onAdd([file]); }
 
-  async function handleVideoRecorded(file) {
-    setRecordingVideo(false);
-    await onAdd([file]);
-  }
-
-  const btnClass = small
-    ? "btn-ghost rounded-xl flex flex-col items-center justify-center gap-0.5"
-    : "btn-ghost rounded-2xl flex items-center justify-center gap-1.5 text-xs px-3 py-2.5";
+  const btnClass = small ? "btn-ghost rounded-xl flex flex-col items-center justify-center gap-0.5" : "btn-ghost rounded-2xl flex items-center justify-center gap-1.5 text-xs px-3 py-2.5";
   const size = small ? { width: 60, height: 60 } : undefined;
   const label = (txt) => (small ? <span className="text-[9px] text-center leading-tight">{txt}</span> : <span>{txt}</span>);
 
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2 flex-wrap">
-        <button type="button" onClick={() => cameraRef.current?.click()} className={btnClass} style={size}>
-          <Camera size={small ? 16 : 14} />{label("Tirar foto")}
-        </button>
-        <button type="button" onClick={() => galleryRef.current?.click()} className={btnClass} style={size}>
-          <Upload size={small ? 16 : 14} />{label("Enviar imagem")}
-        </button>
-        <button
-          type="button"
-          onClick={() => { setRecError(""); setRecordingVideo(true); }}
-          className={btnClass}
-          style={size}
-        >
-          <Video size={small ? 16 : 14} />{label("Gravar vídeo")}
-        </button>
-        <button type="button" onClick={() => videoRef.current?.click()} className={btnClass} style={size}>
-          <Upload size={small ? 16 : 14} />{label("Enviar vídeo")}
-        </button>
+        <button type="button" onClick={() => cameraRef.current?.click()} className={btnClass} style={size}><Camera size={small ? 16 : 14} />{label("Tirar foto")}</button>
+        <button type="button" onClick={() => galleryRef.current?.click()} className={btnClass} style={size}><Upload size={small ? 16 : 14} />{label("Enviar imagem")}</button>
+        <button type="button" onClick={() => { setRecError(""); setRecordingVideo(true); }} className={btnClass} style={size}><Video size={small ? 16 : 14} />{label("Gravar vídeo")}</button>
+        <button type="button" onClick={() => videoRef.current?.click()} className={btnClass} style={size}><Upload size={small ? 16 : 14} />{label("Enviar vídeo")}</button>
       </div>
       {recError && <p className="text-xs" style={{ color: "var(--bad)" }}>{recError}</p>}
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" multiple={multiple} className="hidden" onChange={handlePick} />
       <input ref={galleryRef} type="file" accept="image/*" multiple={multiple} className="hidden" onChange={handlePick} />
       <input ref={videoRef} type="file" accept="video/*" multiple={multiple} className="hidden" onChange={handlePick} />
-      {recordingVideo && (
-        <VideoRecorderModal
-          onSave={handleVideoRecorded}
-          onClose={() => setRecordingVideo(false)}
-          onError={(msg) => { setRecordingVideo(false); setRecError(msg); }}
-        />
-      )}
+      {recordingVideo && <VideoRecorderModal onSave={handleVideoRecorded} onClose={() => setRecordingVideo(false)} onError={(msg) => { setRecordingVideo(false); setRecError(msg); }} />}
     </div>
   );
 }
 
-// Kept as an alias so existing call sites (photo-only spots) keep working.
-function PhotoPicker(props) {
-  return <MediaPicker {...props} />;
-}
+// Kept as an alias so existing call sites keep working.
+function PhotoPicker(props) { return <MediaPicker {...props} />; }
 
-// Live camera preview + record/stop, used by the "Gravar vídeo" button.
+// Live camera preview + record/stop
 function VideoRecorderModal({ onSave, onClose, onError }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -386,19 +406,11 @@ function VideoRecorderModal({ onSave, onClose, onError }) {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true });
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
         streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
+        if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play().catch(() => {}); }
         setReady(true);
-      } catch {
-        onError("Não foi possível acessar a câmera. Verifique as permissões do navegador.");
-      }
+      } catch { onError("Não foi possível acessar a câmera. Verifique as permissões do navegador."); }
     })();
-    return () => {
-      cancelled = true;
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-    };
+    return () => { cancelled = true; streamRef.current?.getTracks().forEach((t) => t.stop()); };
   }, []);
 
   function startRecording() {
@@ -417,9 +429,7 @@ function VideoRecorderModal({ onSave, onClose, onError }) {
     setRecording(true);
   }
 
-  function stopRecording() {
-    recorderRef.current?.stop();
-  }
+  function stopRecording() { recorderRef.current?.stop(); }
 
   return (
     <div className="no-print modal-fade" style={{ position: "fixed", inset: 0, background: "rgba(10,11,16,0.92)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
@@ -430,31 +440,17 @@ function VideoRecorderModal({ onSave, onClose, onError }) {
         </div>
         <div style={{ borderRadius: 10, overflow: "hidden", border: "1px solid var(--line)", background: "#000", position: "relative" }}>
           <video ref={videoRef} muted playsInline style={{ width: "100%", display: "block", maxHeight: 320, objectFit: "cover" }} />
-          {recording && (
-            <span className="absolute top-2 left-2 flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-semibold" style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#E23B3B" }} className="pulseRing" /> Gravando
-            </span>
-          )}
+          {recording && <span className="absolute top-2 left-2 flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-semibold" style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#E23B3B" }} className="pulseRing" /> Gravando</span>}
         </div>
         <div className="flex justify-center gap-2 mt-3">
-          {!recording ? (
-            <button onClick={startRecording} disabled={!ready} className="btn-primary rounded-full px-5 py-2.5 text-sm flex items-center gap-2">
-              <Video size={15} /> Iniciar gravação
-            </button>
-          ) : (
-            <button onClick={stopRecording} className="btn-primary rounded-full px-5 py-2.5 text-sm flex items-center gap-2" style={{ background: "var(--bad)" }}>
-              Parar e salvar
-            </button>
-          )}
+          {!recording ? <button onClick={startRecording} disabled={!ready} className="btn-primary rounded-full px-5 py-2.5 text-sm flex items-center gap-2"><Video size={15} /> Iniciar gravação</button> : <button onClick={stopRecording} className="btn-primary rounded-full px-5 py-2.5 text-sm flex items-center gap-2" style={{ background: "var(--bad)" }}>Parar e salvar</button>}
         </div>
       </div>
     </div>
   );
 }
 
-// Lets the person tap on a photo to drop red markers pointing at the damage,
-// plus an optional written comment describing the issue — saved together so
-// the marking is fully self-explanatory in the report/PDF.
+// Lets the person tap on a photo to drop red markers
 function PhotoAnnotator({ src, marcas, onSave, onClose }) {
   const marcasArray = Array.isArray(marcas) ? marcas : (marcas?.points || []);
   const marcasComentario = Array.isArray(marcas) ? "" : (marcas?.comentario || "");
@@ -468,21 +464,11 @@ function PhotoAnnotator({ src, marcas, onSave, onClose }) {
     const y = ((e.clientY - rect.top) / rect.height) * 100;
     setPontos((prev) => [...prev, { x, y }]);
   }
-
-  function undo() {
-    setPontos((prev) => prev.slice(0, -1));
-  }
-
-  function save() {
-    onSave({ points: pontos, comentario });
-    onClose();
-  }
+  function undo() { setPontos((prev) => prev.slice(0, -1)); }
+  function save() { onSave({ points: pontos, comentario }); onClose(); }
 
   return (
-    <div
-      className="no-print"
-      style={{ position: "fixed", inset: 0, background: "rgba(10,11,16,0.92)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-    >
+    <div className="no-print" style={{ position: "fixed", inset: 0, background: "rgba(10,11,16,0.92)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div className="card p-4" style={{ maxWidth: 520, width: "100%" }}>
         <div className="flex items-center justify-between mb-2">
           <h3 className="display text-sm font-bold">Marcar avaria na foto</h3>
@@ -490,39 +476,18 @@ function PhotoAnnotator({ src, marcas, onSave, onClose }) {
         </div>
         <p className="text-xs mb-2" style={{ color: "var(--ink-soft)" }}>Toque na foto para marcar o ponto exato da avaria.</p>
         <div className="relative" style={{ borderRadius: 10, overflow: "hidden", border: "1px solid var(--line)", cursor: "crosshair" }}>
-          <img ref={imgRef} src={src} alt="" onClick={handleClick} style={{ width: "100%", display: "block", userSelect: "none" }} />
+          <img ref={imgRef} src={getUrlFoto(src)} alt="" onClick={handleClick} style={{ width: "100%", height: "auto", maxHeight: 500, objectFit: "contain", display: "block", userSelect: "none" }} />
           {pontos.map((p, i) => (
-            <div
-              key={i}
-              style={{
-                position: "absolute", left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-50%)",
-                width: 22, height: 22, borderRadius: "50%", border: "2.5px solid #E23B3B",
-                background: "rgba(226,59,59,0.25)", display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 10, fontWeight: 700, color: "#fff",
-              }}
-            >
-              {i + 1}
-            </div>
+            <div key={i} style={{ position: "absolute", left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-50%)", width: 22, height: 22, borderRadius: "50%", border: "2.5px solid #E23B3B", background: "rgba(226,59,59,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff" }}>{i + 1}</div>
           ))}
         </div>
-
         <div className="mt-3">
           <label className="label block mb-1.5">Comentário / observação da marcação</label>
-          <textarea
-            className="textarea w-full px-4 py-2.5 text-sm"
-            rows={2}
-            placeholder="Descreva a avaria marcada..."
-            value={comentario}
-            onChange={(e) => setComentario(e.target.value)}
-          />
+          <textarea className="textarea w-full px-4 py-2.5 text-sm" rows={2} placeholder="Descreva a avaria marcada..." value={comentario} onChange={(e) => setComentario(e.target.value)} />
         </div>
-
         <div className="flex items-center justify-between gap-2 mt-3">
           <button onClick={undo} disabled={pontos.length === 0} className="btn-ghost rounded-full px-3 py-2 text-xs">Desfazer último</button>
-          <div className="flex gap-2">
-            <button onClick={onClose} className="btn-ghost rounded-full px-3 py-2 text-xs">Cancelar</button>
-            <button onClick={save} className="btn-primary rounded-full px-4 py-2 text-xs">Salvar marcações</button>
-          </div>
+          <div className="flex gap-2"><button onClick={onClose} className="btn-ghost rounded-full px-3 py-2 text-xs">Cancelar</button><button onClick={save} className="btn-primary rounded-full px-4 py-2 text-xs">Salvar marcações</button></div>
         </div>
       </div>
     </div>
@@ -541,15 +506,9 @@ function PhotoThumb({ foto, size = 60, onRemove, onUpdate }) {
     return (
       <div className="photo-thumb" style={{ width: size, height: size, background: "#000" }}>
         <video src={foto.src} className="w-full h-full object-cover cursor-zoom-in" onClick={() => openLightbox(foto.src)} muted />
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <Play size={size > 70 ? 22 : 16} color="#fff" fill="#fff" style={{ opacity: 0.85 }} />
-        </div>
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><Play size={size > 70 ? 22 : 16} color="#fff" fill="#fff" style={{ opacity: 0.85 }} /></div>
         {foto.date && <span className="photo-date">{fmtDateTime(foto.date).split(" ")[0]}</span>}
-        {onRemove && (
-          <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="absolute top-0.5 right-0.5 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 16, height: 16 }}>
-            <X size={10} />
-          </button>
-        )}
+        {onRemove && <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="absolute top-0.5 right-0.5 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 16, height: 16 }}><X size={10} /></button>}
       </div>
     );
   }
@@ -559,69 +518,35 @@ function PhotoThumb({ foto, size = 60, onRemove, onUpdate }) {
       <div className="photo-thumb flex flex-col items-center justify-center gap-1 p-1" style={{ width: Math.max(size, 130), height: size, background: "var(--card-alt)" }}>
         <audio src={foto.src} controls style={{ width: "100%", height: 28 }} />
         {foto.date && <span className="text-[8px] mono" style={{ color: "var(--ink-soft)" }}>{fmtDateTime(foto.date)}</span>}
-        {onRemove && (
-          <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="absolute top-0.5 right-0.5 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 16, height: 16 }}>
-            <X size={10} />
-          </button>
-        )}
+        {onRemove && <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="absolute top-0.5 right-0.5 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 16, height: 16 }}><X size={10} /></button>}
       </div>
     );
   }
 
   return (
     <div className="photo-thumb" style={{ width: size, height: size }}>
-      <img
-        src={foto.src}
-        alt=""
-        loading="lazy"
-        className="w-full h-full object-cover cursor-zoom-in"
-        onClick={() => openLightbox(foto.src)}
-      />
+      <img src={getUrlFoto(foto.src)} alt="" loading="lazy" className="w-full h-full object-contain cursor-zoom-in" onClick={() => openLightbox(getUrlFoto(foto.src))} />
       {pontos.map((p, i) => (
-        <div
-          key={i}
-          title={comentarioMarcacao || undefined}
-          style={{
-            position: "absolute", left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-50%)",
-            width: 12, height: 12, borderRadius: "50%", border: "1.5px solid #E23B3B", background: "rgba(226,59,59,0.35)",
-          }}
-        />
+        <div key={i} title={comentarioMarcacao || undefined} style={{ position: "absolute", left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-50%)", width: 12, height: 12, borderRadius: "50%", border: "1.5px solid #E23B3B", background: "rgba(226,59,59,0.35)" }} />
       ))}
       {foto.date && <span className="photo-date">{fmtDateTime(foto.date).split(" ")[0]}</span>}
-      {onUpdate && (
-        <button
-          onClick={(e) => { e.stopPropagation(); setAnnotating(true); }}
-          className="absolute bottom-0.5 left-0.5 rounded-full bg-black/60 text-white flex items-center justify-center"
-          style={{ width: 16, height: 16 }}
-          title="Marcar avaria na foto"
-        >
-          <Target size={10} />
-        </button>
-      )}
-      {onRemove && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onRemove(); }}
-          className="absolute top-0.5 right-0.5 rounded-full bg-black/60 text-white flex items-center justify-center"
-          style={{ width: 16, height: 16 }}
-        >
-          <X size={10} />
-        </button>
-      )}
-      {annotating && (
-        <PhotoAnnotator
-          src={foto.src}
-          marcas={marcas}
-          onSave={(novasMarcas) => onUpdate(novasMarcas)}
-          onClose={() => setAnnotating(false)}
-        />
-      )}
+      {onUpdate && <button onClick={(e) => { e.stopPropagation(); setAnnotating(true); }} className="absolute bottom-0.5 left-0.5 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 16, height: 16 }} title="Marcar avaria na foto"><Target size={10} /></button>}
+      {onRemove && <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="absolute top-0.5 right-0.5 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 16, height: 16 }}><X size={10} /></button>}
+      {annotating && <PhotoAnnotator src={foto.src} marcas={marcas} onSave={(novasMarcas) => onUpdate(novasMarcas)} onClose={() => setAnnotating(false)} />}
     </div>
   );
 }
 
-// A textarea with a "falar por áudio" mic button (Web Speech API) so the
-// person can speak while walking through the vistoria and have it typed in
-// automatically. Falls back gracefully if the browser doesn't support it.
+function Lightbox({ src, onClose }) {
+  if (!src) return null;
+  return (
+    <div className="no-print" onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(10,11,16,0.92)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, cursor: "zoom-out" }}>
+      <button onClick={onClose} style={{ position: "absolute", top: 18, right: 18, width: 36, height: 36, borderRadius: 999, background: "rgba(255,255,255,0.12)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}><X size={18} /></button>
+      <img src={getUrlFoto(src)} alt="" style={{ maxWidth: "94vw", maxHeight: "90vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 8 }} onClick={(e) => e.stopPropagation()} />
+    </div>
+  );
+}
+
 function TextAreaWithDictation({ value, onChange, placeholder, rows = 2, disabled, className = "", style }) {
   const [listening, setListening] = useState(false);
   const [unsupported, setUnsupported] = useState(false);
@@ -629,15 +554,9 @@ function TextAreaWithDictation({ value, onChange, placeholder, rows = 2, disable
   const baseValueRef = useRef(value);
 
   function toggleDictation() {
-    if (listening) {
-      recognitionRef.current?.stop();
-      return;
-    }
+    if (listening) { recognitionRef.current?.stop(); return; }
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setUnsupported(true);
-      return;
-    }
+    if (!SpeechRecognition) { setUnsupported(true); return; }
     baseValueRef.current = value;
     const rec = new SpeechRecognition();
     rec.lang = "pt-BR";
@@ -658,28 +577,9 @@ function TextAreaWithDictation({ value, onChange, placeholder, rows = 2, disable
 
   return (
     <div className="relative">
-      <textarea
-        disabled={disabled}
-        className={`textarea w-full text-sm ${className}`}
-        style={{ paddingRight: 40, ...style }}
-        rows={rows}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
+      <textarea disabled={disabled} className={`textarea w-full text-sm ${className}`} style={{ paddingRight: 40, ...style }} rows={rows} placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
       {!disabled && (
-        <button
-          type="button"
-          onClick={toggleDictation}
-          title={listening ? "Parar ditado" : "Falar por áudio"}
-          className="absolute rounded-full flex items-center justify-center no-print"
-          style={{
-            top: 8, right: 8, width: 24, height: 24,
-            background: listening ? "var(--bad)" : "var(--card-alt)",
-            color: listening ? "#fff" : "var(--ink-soft)",
-            border: "1px solid var(--line)",
-          }}
-        >
+        <button type="button" onClick={toggleDictation} title={listening ? "Parar ditado" : "Falar por áudio"} className="absolute rounded-full flex items-center justify-center no-print" style={{ top: 8, right: 8, width: 24, height: 24, background: listening ? "var(--bad)" : "var(--card-alt)", color: listening ? "#fff" : "var(--ink-soft)", border: "1px solid var(--line)" }}>
           <Mic size={12} />
         </button>
       )}
@@ -688,30 +588,17 @@ function TextAreaWithDictation({ value, onChange, placeholder, rows = 2, disable
   );
 }
 
-// Replaces window.prompt() everywhere in the app — native browser prompts are
-// blocked inside the sandboxed preview here, which is why "Adicionar"/"Editar"
-// buttons that used prompt() silently did nothing before.
+// =====================================================================
+// 🔲 MODAIS E CÓDIGO QR
+// =====================================================================
+
 function PromptModal({ title, placeholder = "", defaultValue = "", confirmLabel = "Salvar", onSubmit, onCancel }) {
   const [value, setValue] = useState(defaultValue);
   return (
-    <div
-      className="no-print modal-fade"
-      onClick={onCancel}
-      style={{ position: "fixed", inset: 0, background: "rgba(10,11,16,0.85)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-    >
+    <div className="no-print modal-fade" onClick={onCancel} style={{ position: "fixed", inset: 0, background: "rgba(10,11,16,0.85)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div className="card modal-pop p-5" style={{ maxWidth: 360, width: "100%" }} onClick={(e) => e.stopPropagation()}>
         <h3 className="display text-sm font-bold mb-3">{title}</h3>
-        <input
-          autoFocus
-          className="input w-full px-4 py-2.5 text-sm mb-4"
-          placeholder={placeholder}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && value.trim()) onSubmit(value.trim());
-            if (e.key === "Escape") onCancel();
-          }}
-        />
+        <input autoFocus className="input w-full px-4 py-2.5 text-sm mb-4" placeholder={placeholder} value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && value.trim()) onSubmit(value.trim()); if (e.key === "Escape") onCancel(); }} />
         <div className="flex justify-end gap-2">
           <button onClick={onCancel} className="btn-ghost rounded-full px-4 py-2 text-sm">Cancelar</button>
           <button disabled={!value.trim()} onClick={() => onSubmit(value.trim())} className="btn-primary rounded-full px-4 py-2 text-sm">{confirmLabel}</button>
@@ -721,239 +608,29 @@ function PromptModal({ title, placeholder = "", defaultValue = "", confirmLabel 
   );
 }
 
-function Lightbox({ src, onClose }) {
-  if (!src) return null;
-  return (
-    <div
-      className="no-print"
-      onClick={onClose}
-      style={{
-        position: "fixed", inset: 0, background: "rgba(10,11,16,0.92)", zIndex: 1000,
-        display: "flex", alignItems: "center", justifyContent: "center", padding: 24, cursor: "zoom-out",
-      }}
-    >
-      <button
-        onClick={onClose}
-        style={{ position: "absolute", top: 18, right: 18, width: 36, height: 36, borderRadius: 999, background: "rgba(255,255,255,0.12)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
-      >
-        <X size={18} />
-      </button>
-      <img src={src} alt="" style={{ maxWidth: "94vw", maxHeight: "90vh", objectFit: "contain", borderRadius: 8 }} onClick={(e) => e.stopPropagation()} />
-    </div>
-  );
-}
-
-function enderecoCompleto(imovel) {
-  if (!imovel) return "";
-  const linha1 = [imovel.endereco, imovel.numero && `nº ${imovel.numero}`].filter(Boolean).join(", ");
-  const linha2 = [imovel.bairro, imovel.cidade, imovel.estado].filter(Boolean).join(" - ");
-  const comp = imovel.complemento ? ` (${imovel.complemento})` : "";
-  return [linha1, linha2].filter(Boolean).join(" - ") + comp;
-}
-
-function fichaText(inspection) {
-  return [
-    "Ficha rápida do imóvel — VistorIA",
-    `Endereço: ${enderecoCompleto(inspection.imovel) || "—"}`,
-    `Tipo: ${inspection.imovel.tipoImovel} (${inspection.mobiliario})`,
-    inspection.imovel.metragem ? `Metragem: ${inspection.imovel.metragem}` : null,
-    `Proprietário: ${inspection.imovel.proprietario || "—"}`,
-    `Inquilino: ${inspection.imovel.inquilino || "—"}`,
-    `Última vistoria: ${fmtDate(inspection.dataVistoria)} (${inspection.tipo})`,
-    `Status: ${inspection.status}`,
-  ].filter(Boolean).join("\n");
-}
-
-function qrCodeUrl(text, size = 220) {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`;
-}
-
 function QrCodeModal({ inspection, onClose }) {
   const text = fichaText(inspection);
   return (
-    <div
-      className="no-print"
-      onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(10,11,16,0.85)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-    >
+    <div className="no-print" onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(10,11,16,0.85)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div className="card p-5" style={{ maxWidth: 320, width: "100%" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="display text-sm font-bold flex items-center gap-1.5"><QrCode size={16} /> QR do imóvel</h3>
           <button onClick={onClose} className="btn-ghost rounded-full p-1.5"><X size={14} /></button>
         </div>
         <div className="flex justify-center mb-3">
+          {/* CORRIGIDO: Faltava a tag <img> aqui */}
           <img src={qrCodeUrl(text)} alt="QR code do imóvel" style={{ width: 200, height: 200, borderRadius: 8, background: "#fff", padding: 8 }} />
         </div>
         <p className="text-xs mb-3" style={{ color: "var(--ink-soft)", whiteSpace: "pre-line" }}>{text}</p>
-        <p className="text-[10px]" style={{ color: "var(--ink-faint)" }}>
-          Ao escanear, aparece a ficha resumida deste imóvel como texto. Cole esse QR no imóvel ou salve a imagem para consulta rápida.
-        </p>
+        <p className="text-[10px]" style={{ color: "var(--ink-faint)" }}>Ao escanear, aparece a ficha resumida deste imóvel como texto. Cole esse QR no imóvel ou salve a imagem para consulta rápida.</p>
       </div>
     </div>
   );
 }
 
-function fmtDate(iso) {
-  if (!iso) return "—";
-  const [y, m, d] = iso.split("-");
-  return `${d}/${m}/${y}`;
-}
-
-function emptyMedidor(opcional = false, unidadePadrao = "") {
-  return { ativo: !opcional, numero: "", leitura: "", unidade: unidadePadrao, concessionaria: "", marca: "", observacoes: "", fotos: [] };
-}
-
-function emptyChave() {
-  return { quantidade: "", observacoes: "", fotos: [] };
-}
-
-function emptyInspection() {
-  return {
-    id: uid(),
-    tipo: "Entrada",
-    dataVistoria: todayISO(),
-    vistoriador: "",
-    imovel: {
-      cep: "", endereco: "", numero: "", bairro: "", cidade: "", estado: "", complemento: "",
-      metragem: "", proprietario: "", inquilino: "", tipoImovel: "Apartamento",
-    },
-    mobiliario: "Vazio",
-    status: "Em andamento",
-    capaFoto: null,
-    ambientes: [],
-    medidores: { agua: emptyMedidor(false, "m³"), energia: emptyMedidor(false, "kWh"), gas: emptyMedidor(true, "m³") },
-    chaves: {
-      entrada: emptyChave(),
-      garagem: emptyChave(),
-      controle: emptyChave(),
-      tags: emptyChave(),
-      outras: [],
-    },
-    signatures: { vistoriador: null, locador: null, locatario: null },
-    parecerTecnico: { texto: "", anexos: [] },
-    createdAt: Date.now(),
-  };
-}
-
-const STORAGE_INDEX_KEY = "insp-index";
-const inspKey = (id) => `insp:${id}`;
-
-async function storageLoadAll() {
-  try {
-    const idxRes = await storage.get(STORAGE_INDEX_KEY);
-    const ids = idxRes ? JSON.parse(idxRes.value) : [];
-    const results = await Promise.all(
-      ids.map(async (id) => {
-        try {
-          const r = await storage.get(inspKey(id));
-          return r ? JSON.parse(r.value) : null;
-        } catch {
-          return null;
-        }
-      })
-    );
-    return results.filter(Boolean).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  } catch {
-    return [];
-  }
-}
-
-async function storageSaveInspection(insp) {
-  await storage.set(inspKey(insp.id), JSON.stringify(insp));
-}
-
-async function storageSaveIndex(ids) {
-  await storage.set(STORAGE_INDEX_KEY, JSON.stringify(ids));
-}
-
-async function storageDeleteInspection(id, remainingIds) {
-  await storage.delete(inspKey(id)).catch(() => {});
-  await storageSaveIndex(remainingIds);
-}
-
-// Merge older saved inspections (before medidores/chaves/logo existed) with new defaults
-function withDefaults(insp) {
-  const base = emptyInspection();
-  const oldSig = insp.signatures || {};
-  return {
-    ...base,
-    ...insp,
-    imovel: { ...base.imovel, ...(insp.imovel || {}) },
-    mobiliario: insp.mobiliario || base.mobiliario,
-    ambientes: (insp.ambientes || []).map((amb) => ({
-      ...amb,
-      fotos: (amb.fotos || []).map(normalizePhoto),
-      itens: (amb.itens || []).map((it) => ({ ...it, fotos: (it.fotos || []).map(normalizePhoto) })),
-    })),
-    medidores: {
-      agua: { ...base.medidores.agua, ...(insp.medidores?.agua || {}), fotos: (insp.medidores?.agua?.fotos || []).map(normalizePhoto) },
-      energia: { ...base.medidores.energia, ...(insp.medidores?.energia || {}), fotos: (insp.medidores?.energia?.fotos || []).map(normalizePhoto) },
-      gas: { ...base.medidores.gas, ...(insp.medidores?.gas || {}), fotos: (insp.medidores?.gas?.fotos || []).map(normalizePhoto) },
-    },
-    chaves: {
-      entrada: { ...base.chaves.entrada, ...(insp.chaves?.entrada || {}), fotos: (insp.chaves?.entrada?.fotos || []).map(normalizePhoto) },
-      garagem: { ...base.chaves.garagem, ...(insp.chaves?.garagem || {}), fotos: (insp.chaves?.garagem?.fotos || []).map(normalizePhoto) },
-      controle: { ...base.chaves.controle, ...(insp.chaves?.controle || {}), fotos: (insp.chaves?.controle?.fotos || []).map(normalizePhoto) },
-      tags: { ...base.chaves.tags, ...(insp.chaves?.tags || {}), fotos: (insp.chaves?.tags?.fotos || []).map(normalizePhoto) },
-      outras: (insp.chaves?.outras || []).map((o) => ({ ...o, fotos: (o.fotos || []).map(normalizePhoto) })),
-    },
-    signatures: {
-      vistoriador: oldSig.vistoriador ?? null,
-      locador: oldSig.locador ?? null,
-      locatario: oldSig.locatario ?? oldSig.responsavel ?? null,
-    },
-    parecerTecnico: {
-      texto: insp.parecerTecnico?.texto || "",
-      anexos: insp.parecerTecnico?.anexos || [],
-    },
-  };
-}
-
-function buildExampleInspection() {
-  const ambientes = ambientesFromModel("Apartamento");
-
-  const cozinha = ambientes.find((a) => a.nome === "Cozinha");
-  if (cozinha) {
-    const pia = cozinha.itens.find((i) => i.nome === "Pia");
-    if (pia) {
-      pia.estado = "Regular";
-      pia.temDano = true;
-      pia.descricaoDano = "Pequeno vazamento identificado no sifão.";
-      pia.observacoes = "Recomenda-se reparo antes da próxima vistoria.";
-    }
-  }
-  const sala = ambientes.find((a) => a.nome === "Sala de Estar");
-  if (sala) {
-    const piso = sala.itens.find((i) => i.nome === "Piso");
-    if (piso) piso.observacoes = "Piso laminado em bom estado, sem riscos aparentes.";
-  }
-
-  return {
-    tipo: "Entrada",
-    dataVistoria: todayISO(),
-    vistoriador: "Vistoriador Exemplo",
-    mobiliario: "Mobiliado",
-    capaFoto: null,
-    ambientes,
-    imovel: {
-      cep: "01310-100", endereco: "Avenida Paulista", numero: "1000", bairro: "Bela Vista",
-      cidade: "São Paulo", estado: "SP", complemento: "Apto 52", metragem: "68 m²",
-      proprietario: "Maria Souza", inquilino: "João Pereira", tipoImovel: "Apartamento",
-    },
-    medidores: {
-      agua: { ativo: true, numero: "883421", leitura: "1245", unidade: "m³", concessionaria: "Sabesp", observacoes: "Leitura registrada no início da vistoria.", fotos: [] },
-      energia: { ativo: true, numero: "55219087", leitura: "08234", unidade: "kWh", concessionaria: "Enel", observacoes: "", fotos: [] },
-      gas: { ativo: false, numero: "", leitura: "", unidade: "", marca: "", observacoes: "", fotos: [] },
-    },
-    chaves: {
-      entrada: { quantidade: "2", observacoes: "Chaves tetra" },
-      garagem: { quantidade: "1", observacoes: "" },
-      controle: { quantidade: "1", observacoes: "Controle do portão da garagem" },
-      tags: { quantidade: "2", observacoes: "Tags de acesso à portaria" },
-      outras: [],
-    },
-  };
-}
+// =====================================================================
+// ⚙️ COMPONENTE PRINCIPAL (APP)
+// =====================================================================
 
 export default function App() {
   const [inspections, setInspections] = useState([]);
@@ -977,30 +654,10 @@ export default function App() {
     (async () => {
       const all = await storageLoadAll();
       setInspections(all.map(withDefaults));
-      try {
-        const pref = await storage.get("ui-show-calendar");
-        if (pref) setCalendarVisible(JSON.parse(pref.value));
-      } catch {
-        // default stays visible
-      }
-      try {
-        const th = await storage.get("ui-theme");
-        if (th) setTheme(JSON.parse(th.value));
-      } catch {
-        // default stays dark
-      }
-      try {
-        const cm = await storage.get("custom-models");
-        if (cm) setCustomModels(JSON.parse(cm.value));
-      } catch {
-        // no custom models yet
-      }
-      try {
-        const ag = await storage.get("agendamentos");
-        if (ag) setAgendamentos(JSON.parse(ag.value));
-      } catch {
-        // no agendamentos yet
-      }
+      try { const pref = await storage.get("ui-show-calendar"); if (pref) setCalendarVisible(JSON.parse(pref.value)); } catch {}
+      try { const th = await storage.get("ui-theme"); if (th) setTheme(JSON.parse(th.value)); } catch {}
+      try { const cm = await storage.get("custom-models"); if (cm) setCustomModels(JSON.parse(cm.value)); } catch {}
+      try { const ag = await storage.get("agendamentos"); if (ag) setAgendamentos(JSON.parse(ag.value)); } catch {}
       setLoaded(true);
     })();
   }, []);
@@ -1057,12 +714,7 @@ export default function App() {
     setSaveState("saving");
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
-      try {
-        await storageSaveInspection(insp);
-        setSaveState("saved");
-      } catch {
-        setSaveState("error");
-      }
+      try { await storageSaveInspection(insp); setSaveState("saved"); } catch { setSaveState("error"); }
     }, 500);
   }, []);
 
@@ -1082,58 +734,30 @@ export default function App() {
     setCurrentId(insp.id);
     setView("detail");
     setSaveState("saving");
-    try {
-      await storageSaveInspection(insp);
-      await storageSaveIndex(next.map((i) => i.id));
-      setSaveState("saved");
-    } catch {
-      setSaveState("error");
-    }
+    try { await storageSaveInspection(insp); await storageSaveIndex(next.map((i) => i.id)); setSaveState("saved"); } catch { setSaveState("error"); }
   }
 
   async function deleteInspection(id) {
     const next = inspections.filter((i) => i.id !== id);
     setInspections(next);
-    if (currentId === id) {
-      setCurrentId(null);
-      setView("list");
-    }
+    if (currentId === id) { setCurrentId(null); setView("list"); }
     setSaveState("saving");
-    try {
-      await storageDeleteInspection(id, next.map((i) => i.id));
-      setSaveState("saved");
-    } catch {
-      setSaveState("error");
-    }
+    try { await storageDeleteInspection(id, next.map((i) => i.id)); setSaveState("saved"); } catch { setSaveState("error"); }
   }
 
-  function startNew(modelKey = null) {
-    setPendingModel(modelKey);
-    setView("new");
-  }
+  function startNew(modelKey = null) { setPendingModel(modelKey); setView("new"); }
 
-  async function generateExample() {
-    await createInspection(buildExampleInspection());
-  }
+  async function generateExample() { await createInspection(buildExampleInspection()); }
 
-  // Export: bundles inspection(s) — including every embedded photo/video/audio
-  // and anexo, since those are already stored as base64 data URLs inside the
-  // inspection object — into one portable .json file the user can back up or
-  // move to another device/browser.
   function exportInspections(ids) {
     const toExport = ids ? inspections.filter((i) => ids.includes(i.id)) : inspections;
-    const payload = {
-      app: "VistorIA", exportedAt: new Date().toISOString(), version: 1,
-      inspections: toExport,
-    };
+    const payload = { app: "VistorIA", exportedAt: new Date().toISOString(), version: 1, inspections: toExport };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     const stamp = todayISO();
     a.href = url;
-    a.download = toExport.length === 1
-      ? `vistoria-${(toExport[0].imovel.endereco || "sem-endereco").replace(/[^a-z0-9]+/gi, "-")}-${stamp}.json`
-      : `vistorias-vistoria-ia-${stamp}.json`;
+    a.download = toExport.length === 1 ? `vistoria-${(toExport[0].imovel.endereco || "sem-endereco").replace(/[^a-z0-9]+/gi, "-")}-${stamp}.json` : `vistorias-vistoria-ia-${stamp}.json`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1143,40 +767,20 @@ export default function App() {
   async function importInspections(file) {
     const text = await file.text();
     let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      throw new Error("Arquivo inválido: não é um JSON de exportação do VistorIA.");
-    }
+    try { data = JSON.parse(text); } catch { throw new Error("Arquivo inválido: não é um JSON de exportação do VistorIA."); }
     const list = Array.isArray(data) ? data : data.inspections;
     if (!Array.isArray(list)) throw new Error("Arquivo inválido: nenhuma vistoria encontrada dentro dele.");
-
-    // Give imported inspections fresh ids so they never collide with existing
-    // ones (e.g. importing the same backup twice, or into another browser
-    // that already has vistorias with those same ids).
     const imported = list.map((insp) => withDefaults({ ...insp, id: uid(), createdAt: Date.now() }));
     const next = [...imported, ...inspections];
     setInspections(next);
     setSaveState("saving");
-    try {
-      await Promise.all(imported.map((insp) => storageSaveInspection(insp)));
-      await storageSaveIndex(next.map((i) => i.id));
-      setSaveState("saved");
-    } catch {
-      setSaveState("error");
-    }
+    try { await Promise.all(imported.map((insp) => storageSaveInspection(insp))); await storageSaveIndex(next.map((i) => i.id)); setSaveState("saved"); } catch { setSaveState("error"); }
     return imported.length;
   }
 
   const filtered = inspections.filter((i) => {
     const q = query.toLowerCase();
-    const matchesText = (
-      i.imovel.endereco.toLowerCase().includes(q) ||
-      i.imovel.bairro.toLowerCase().includes(q) ||
-      i.imovel.cidade.toLowerCase().includes(q) ||
-      i.imovel.proprietario.toLowerCase().includes(q) ||
-      i.vistoriador.toLowerCase().includes(q)
-    );
+    const matchesText = (i.imovel.endereco.toLowerCase().includes(q) || i.imovel.bairro.toLowerCase().includes(q) || i.imovel.cidade.toLowerCase().includes(q) || i.imovel.proprietario.toLowerCase().includes(q) || i.vistoriador.toLowerCase().includes(q));
     const matchesDate = !dateFilter || i.dataVistoria === dateFilter;
     return matchesText && matchesDate;
   });
@@ -1358,44 +962,25 @@ export default function App() {
           from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: translateY(0); }
         }
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes popIn {
-          from { opacity: 0; transform: scale(0.92); }
-          to { opacity: 1; transform: scale(1); }
-        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes popIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
         @keyframes pulseRing {
           0% { box-shadow: 0 0 0 0 rgba(162,58,76,0.45); }
           70% { box-shadow: 0 0 0 12px rgba(162,58,76,0); }
           100% { box-shadow: 0 0 0 0 rgba(162,58,76,0); }
         }
-        @keyframes slideInRight {
-          from { opacity: 0; transform: translateX(24px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes spinSlow {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
+        @keyframes slideInRight { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes spinSlow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .view-enter { animation: fadeSlideUp 0.32s ease both; }
-        .card {
-          transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-        }
+        .card { transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; }
         .card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.14); }
-        .btn-primary, .btn-secondary, .btn-ghost, .tab-btn, .estado-btn {
-          transition: all 0.15s ease;
-        }
+        .btn-primary, .btn-secondary, .btn-ghost, .tab-btn, .estado-btn { transition: all 0.15s ease; }
         .btn-primary:active, .btn-secondary:active { transform: scale(0.96); }
         .tab-btn.active { animation: popIn 0.2s ease; }
         .badge { transition: all 0.15s ease; }
         .modal-pop { animation: popIn 0.22s cubic-bezier(0.2,0.8,0.3,1) both; }
         .modal-fade { animation: fadeIn 0.2s ease both; }
-        .assistant-fab {
-          animation: pulseRing 2.4s infinite;
-          transition: transform 0.2s ease;
-        }
+        .assistant-fab { animation: pulseRing 2.4s infinite; transition: transform 0.2s ease; }
         .assistant-fab:hover { transform: scale(1.08); }
         .assistant-panel { animation: slideInRight 0.28s cubic-bezier(0.2,0.8,0.3,1) both; }
         .spin-slow { animation: spinSlow 6s linear infinite; }
@@ -1503,6 +1088,10 @@ function SaveIndicator({ state }) {
     </span>
   );
 }
+
+// =====================================================================
+// 📅 CALENDÁRIO E AGENDAMENTOS
+// =====================================================================
 
 const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const DIAS_SEMANA = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -1673,6 +1262,10 @@ function AgendarModal({ date, onClose, onSave }) {
   );
 }
 
+// =====================================================================
+// 📋 LISTA PRINCIPAL DE VISTORIAS
+// =====================================================================
+
 function ListView({ inspections, allInspections, query, setQuery, dateFilter, setDateFilter, calendarVisible, toggleCalendar, onOpen, onNew, onUseModel, onGenerateExample, onDelete, saveState, customModels, onCreateCustomModel, onDeleteCustomModel, theme, toggleTheme, agendamentos, onAddAgendamento, onRemoveAgendamento, onExport, onImport }) {
   const [tab, setTab] = useState("vistorias");
   const [importing, setImporting] = useState(false);
@@ -1809,13 +1402,13 @@ function ListView({ inspections, allInspections, query, setQuery, dateFilter, se
                 (a, amb) => a + amb.itens.filter((it) => it.temDano).length, 0
               );
               return (
-                <div key={insp.id} className="card p-4 flex items-center gap-4">
+                <div key={insp.id} className="card p-4 flex items-center gap-4 overflow-hidden">
                   <div
                     className="flex items-center justify-center rounded-xl shrink-0 overflow-hidden"
                     style={{ width: 46, height: 46, background: "var(--card-alt)" }}
                   >
                     {insp.capaFoto ? (
-                      <img src={insp.capaFoto.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+                      <img src={getUrlFoto(insp.capaFoto.src)} alt="" loading="lazy" className="w-full  object-contain"style={{height:"auto",maxHeight:200}} />
                     ) : (
                       <Building2 size={20} style={{ color: "var(--accent)" }} />
                     )}
@@ -1851,6 +1444,10 @@ function ListView({ inspections, allInspections, query, setQuery, dateFilter, se
     </div>
   );
 }
+
+// =====================================================================
+// 📖 AJUDA E MODELOS PRONTOS
+// =====================================================================
 
 function AjudaTab() {
   const passos = [
@@ -1961,6 +1558,9 @@ function ModelosTab({ onUseModel, onGenerateExample, customModels, onCreateCusto
     </div>
   );
 }
+// =====================================================================
+// 🏗️ CONSTRUTOR DE MODELOS PERSONALIZADOS
+// =====================================================================
 
 function ModelBuilderView({ onCancel, onSave }) {
   const [nome, setNome] = useState("");
@@ -2058,6 +1658,10 @@ function ModelBuilderView({ onCancel, onSave }) {
     </div>
   );
 }
+
+// =====================================================================
+// 🆕 NOVA VISTORIA (Formulário Inicial)
+// =====================================================================
 
 function NewInspectionView({ onCancel, onCreate, initialModel }) {
   const [form, setForm] = useState({
@@ -2174,7 +1778,7 @@ function NewInspectionView({ onCancel, onCreate, initialModel }) {
           </h2>
           {capaFoto ? (
             <div className="relative w-fit">
-              <img src={capaFoto.src} alt="Capa" style={{ width: 160, height: 110, objectFit: "cover", borderRadius: 12, border: "1px solid var(--line)" }} />
+              <img src={getUrlFoto(capaFoto.src)} alt="Capa" style={{ width: 160, height: 110, objectFit: "cover", borderRadius: 12, border: "1px solid var(--line)" }} />
               <button onClick={() => setCapaFoto(null)} className="absolute -top-2 -right-2 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 18, height: 18 }}>
                 <X size={11} />
               </button>
@@ -2309,6 +1913,10 @@ function NewInspectionView({ onCancel, onCreate, initialModel }) {
   );
 }
 
+// =====================================================================
+// 📋 DETALHES DA VISTORIA (DetailView, Ambientes, Itens)
+// =====================================================================
+
 function CapaFotoEditor({ capaFoto, locked, onChange }) {
   const fileRef = useRef(null);
 
@@ -2324,7 +1932,7 @@ function CapaFotoEditor({ capaFoto, locked, onChange }) {
     <div className="mb-4 no-print">
       {capaFoto ? (
         <div className="relative w-fit">
-          <img src={capaFoto.src} alt="Foto do imóvel" style={{ width: 140, height: 95, objectFit: "cover", borderRadius: 12, border: "1px solid var(--line)" }} />
+          <img src={getUrlFoto(capaFoto.src)} alt="Foto do imóvel" style={{ width: 140, height: 95, objectFit: "cover", borderRadius: 12, border: "1px solid var(--line)" }} />
           {capaFoto.date && <span className="photo-date" style={{ borderRadius: "0 0 12px 12px" }}>{fmtDateTime(capaFoto.date)}</span>}
           {!locked && (
             <button onClick={() => onChange(null)} className="absolute -top-2 -right-2 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 18, height: 18 }}>
@@ -2502,6 +2110,10 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
   );
 }
 
+// =====================================================================
+// ⚖️ COMPARAÇÃO ENTRE VISTORIAS
+// =====================================================================
+
 function ComparacaoTab({ inspection, allInspections }) {
   const candidatas = allInspections.filter((i) => i.id !== inspection.id);
   const mesmoEndereco = candidatas.filter(
@@ -2521,7 +2133,6 @@ function ComparacaoTab({ inspection, allInspections }) {
     );
   }
 
-  // A (mais antiga) -> B (mais recente), pela data
   const [A, B] = outra
     ? [outra, inspection].sort((x, y) => new Date(x.dataVistoria) - new Date(y.dataVistoria))
     : [null, null];
@@ -2621,6 +2232,10 @@ function ComparacaoTab({ inspection, allInspections }) {
     </div>
   );
 }
+
+// =====================================================================
+// 🏠 AMBIENTES E ITENS
+// =====================================================================
 
 function AmbientesTab({ inspection, locked, templateOpen, setTemplateOpen, addAmbiente, removeAmbiente, updateAmbiente, applyModel, customModels = [] }) {
   return (
@@ -2796,11 +2411,10 @@ function AmbienteCard({ ambiente, numero, locked, onRemove, onChange }) {
   );
 }
 
-// A technical field shown minimized (label + current value in one row) with a
-// button/chevron that opens a picker of pre-filled options (or a custom text
-// input if nothing listed fits) — instead of an always-open input.
-// Persists custom additions/removals to a field's pick-list so "+ Adicionar"
-// and deleting an option are remembered across the whole app (not just this item).
+// =====================================================================
+// 📝 CAMPOS TÉCNICOS E ITENS
+// =====================================================================
+
 function useFieldOptionsStore(fieldKey) {
   const [added, setAdded] = useState([]);
   const [removed, setRemoved] = useState([]);
@@ -2816,9 +2430,7 @@ function useFieldOptionsStore(fieldKey) {
           setAdded(data.added || []);
           setRemoved(data.removed || []);
         }
-      } catch {
-        // no custom options saved yet
-      }
+      } catch {}
       setLoaded(true);
     })();
   }, [fieldKey]);
@@ -2843,10 +2455,7 @@ function useFieldOptionsStore(fieldKey) {
       persist(added, next);
       return next;
     });
-    setAdded((prev) => {
-      const next = prev.filter((o) => o !== text);
-      return next;
-    });
+    setAdded((prev) => prev.filter((o) => o !== text));
   }
 
   function renameOption(oldText, newText) {
@@ -2985,7 +2594,6 @@ function TechFieldPicker({ fieldKey, label, value, options, disabled, onChange }
   );
 }
 
-// Numeric field with a +/- stepper, defaulting to 0 ("nenhum") instead of blank.
 function QuantityStepper({ label, value, disabled, onChange }) {
   const n = value === "" || value === undefined || value === null ? 0 : Number(value) || 0;
 
@@ -3159,6 +2767,10 @@ function ItemRow({ item, locked, onChange, onRemove }) {
   );
 }
 
+// =====================================================================
+// 💧 MEDIDORES E CHAVES
+// =====================================================================
+
 function MedidorCard({ icon, title, data, locked, opcional, unidades, onChange }) {
   const ativo = data.ativo;
 
@@ -3244,33 +2856,9 @@ function MedidorCard({ icon, title, data, locked, opcional, unidades, onChange }
 function MedidoresTab({ medidores, locked, onChange }) {
   return (
     <div className="grid gap-4">
-      <MedidorCard
-        icon={<Droplet size={15} style={{ color: "var(--accent)" }} />}
-        title="Água"
-        data={medidores.agua}
-        locked={locked}
-        opcional={false}
-        unidades={["m³"]}
-        onChange={(fn) => onChange((m) => ({ ...m, agua: fn(m.agua) }))}
-      />
-      <MedidorCard
-        icon={<Zap size={15} style={{ color: "var(--accent)" }} />}
-        title="Energia"
-        data={medidores.energia}
-        locked={locked}
-        opcional={false}
-        unidades={["kWh"]}
-        onChange={(fn) => onChange((m) => ({ ...m, energia: fn(m.energia) }))}
-      />
-      <MedidorCard
-        icon={<Flame size={15} style={{ color: "var(--accent)" }} />}
-        title="Gás"
-        data={medidores.gas}
-        locked={locked}
-        opcional={true}
-        unidades={["m³", "kg"]}
-        onChange={(fn) => onChange((m) => ({ ...m, gas: fn(m.gas) }))}
-      />
+      <MedidorCard icon={<Droplet size={15} style={{ color: "var(--accent)" }} />} title="Água" data={medidores.agua} locked={locked} opcional={false} unidades={["m³"]} onChange={(fn) => onChange((m) => ({ ...m, agua: fn(m.agua) }))} />
+      <MedidorCard icon={<Zap size={15} style={{ color: "var(--accent)" }} />} title="Energia" data={medidores.energia} locked={locked} opcional={false} unidades={["kWh"]} onChange={(fn) => onChange((m) => ({ ...m, energia: fn(m.energia) }))} />
+      <MedidorCard icon={<Flame size={15} style={{ color: "var(--accent)" }} />} title="Gás" data={medidores.gas} locked={locked} opcional={true} unidades={["m³", "kg"]} onChange={(fn) => onChange((m) => ({ ...m, gas: fn(m.gas) }))} />
     </div>
   );
 }
@@ -3368,12 +2956,9 @@ function ChavesTab({ chaves, locked, onChange }) {
   );
 }
 
-function fmtFileSize(bytes) {
-  if (!bytes && bytes !== 0) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+// =====================================================================
+// 📄 PARECER TÉCNICO
+// =====================================================================
 
 function ParecerTecnicoTab({ parecerTecnico, locked, onChange }) {
   const fileRef = useRef(null);
@@ -3455,48 +3040,21 @@ function ParecerTecnicoTab({ parecerTecnico, locked, onChange }) {
   );
 }
 
-function AssinaturaTab({ inspection, locked, onUpdate }) {
-  return (
-    <div className="card p-5">
-      <h3 className="display text-sm font-bold mb-1 flex items-center gap-2"><PenLine size={15} /> Assinatura digital</h3>
-      <p className="text-xs mb-4" style={{ color: "var(--ink-soft)" }}>
-        Vistoriador, locador e locatário podem assinar direto na tela — com o dedo ou o mouse. Se preferir, deixe em branco para assinar à caneta depois de imprimir.
-      </p>
-      <div className="flex gap-6 flex-wrap">
-        <SignaturePad
-          label="Assinatura do vistoriador"
-          value={inspection.signatures?.vistoriador}
-          locked={locked}
-          onSave={(dataUrl) => onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, vistoriador: dataUrl } }))}
-        />
-        <SignaturePad
-          label="Assinatura do locador"
-          value={inspection.signatures?.locador}
-          locked={locked}
-          onSave={(dataUrl) => onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locador: dataUrl } }))}
-        />
-        <SignaturePad
-          label="Assinatura do locatário"
-          value={inspection.signatures?.locatario}
-          locked={locked}
-          onSave={(dataUrl) => onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locatario: dataUrl } }))}
-        />
-      </div>
-    </div>
-  );
-}
+// =====================================================================
+// ✍️ ASSINATURAS (SignaturePad e AssinaturaTab) - CORRIGIDO
+// =====================================================================
 
 function SignaturePad({ label, value, onSave, locked }) {
   const canvasRef = useRef(null);
+  const [empty, setEmpty] = useState(true);
   const drawing = useRef(false);
   const hasDrawn = useRef(false);
-  const [empty, setEmpty] = useState(true);
 
   function getPos(e, canvas) {
     const rect = canvas.getBoundingClientRect();
     return {
       x: (e.clientX - rect.left) * (canvas.width / rect.width),
-      y: (e.clientY - rect.top) * (canvas.height / rect.height),
+      y: (e.clientY - rect.top) * (canvas.height / rect.height)
     };
   }
 
@@ -3536,8 +3094,6 @@ function SignaturePad({ label, value, onSave, locked }) {
     }
   }
 
-  // Fully resets: clears any drawn strokes, tells the parent there's no
-  // signature anymore, and lets the (freshly re-mounted) canvas start blank.
   function clear() {
     hasDrawn.current = false;
     setEmpty(true);
@@ -3549,7 +3105,11 @@ function SignaturePad({ label, value, onSave, locked }) {
       <div className="flex items-center justify-between mb-1.5">
         <p className="label flex items-center gap-1.5"><PenLine size={12} /> {label}</p>
         {!locked && !empty && (
-          <button onClick={clear} className="btn-ghost rounded-full px-2.5 py-1 text-xs no-print flex items-center gap-1">
+          <button 
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); clear(); }}
+            className="btn-ghost rounded-full px-2.5 py-1 text-xs no-print flex"
+            type="button"
+          >
             <RotateCcw size={11} /> Refazer
           </button>
         )}
@@ -3557,7 +3117,7 @@ function SignaturePad({ label, value, onSave, locked }) {
 
       {value ? (
         <div style={{ border: "1px solid var(--line)", borderRadius: 10, background: "#fff", padding: 4 }}>
-          <img src={value} alt={`Assinatura ${label}`} style={{ width: "100%", height: 110, objectFit: "contain" }} />
+          <img src={getUrlFoto(value)} alt={`Assinatura ${label}`} style={{ width: "100%", height: 110, objectFit: "contain" }} />
         </div>
       ) : (
         <div className="relative">
@@ -3594,122 +3154,180 @@ function SignaturePad({ label, value, onSave, locked }) {
   );
 }
 
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function AssinaturaTab({ inspection, locked, onUpdate }) {
+  return (
+    <div className="card p-5">
+      <h3 className="display text-sm font-bold mb-1 flex items-center gap-2"><PenLine size={15} /> Assinatura digital</h3>
+      <p className="text-xs mb-4" style={{ color: "var(--ink-soft)" }}>
+        Vistoriador, locador e locatário podem assinar direto na tela — com o dedo ou o mouse. Se preferir, deixe em branco para assinar à caneta depois de imprimir.
+      </p>
+
+      {/* ---------- 1. VISTORIADOR ---------- */}
+      <div className="border rounded-lg p-3 bg-white mb-4">
+        <p className="text-sm font-medium mb-2">Assinatura do vistoriador</p>
+        <SignaturePad
+          label="Assinatura do vistoriador"
+          value={inspection.signatures?.vistoriador}
+          locked={locked || inspection.signatures?.vistoriadorSalva}
+          onSave={(dataUrl) => { window._assinaturaTempVistoriador = dataUrl; }}
+        />
+        <div className="flex gap-2 mt-2 flex-wrap">
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              const dados = window._assinaturaTempVistoriador;
+              if (dados) { onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, vistoriador: dados, vistoriadorSalva: true } })); }
+            }}
+            type="button"
+            className="btn-primary px-3 py-1.5 text-sm rounded"
+          >💾 Salvar</button>
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, vistoriador: null, vistoriadorSalva: false } }));
+            }}
+            type="button"
+            className="btn-ghost px-3 py-1.5 text-sm rounded text-red-600"
+          >🗑️ Limpar</button>
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, vistoriadorSalva: false } }));
+            }}
+            type="button"
+            className="btn-ghost px-3 py-1.5 text-sm rounded"
+          >✏️ Editar</button>
+        </div>
+      </div>
+
+      {/* ---------- 2. LOCADOR ---------- */}
+      <div className="border rounded-lg p-3 bg-white mb-4">
+        <p className="text-sm font-medium mb-2">Assinatura do locador</p>
+        <SignaturePad
+          label="Assinatura do locador"
+          value={inspection.signatures?.locador}
+          locked={locked || inspection.signatures?.locadorSalva}
+          onSave={(dataUrl) => { window._assinaturaTempLocador = dataUrl; }}
+        />
+        <div className="flex gap-2 mt-2 flex-wrap">
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              const dados = window._assinaturaTempLocador;
+              if (dados) { onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locador: dados, locadorSalva: true } })); }
+            }}
+            type="button"
+            className="btn-primary px-3 py-1.5 text-sm rounded"
+          >💾 Salvar</button>
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locador: null, locadorSalva: false } }));
+            }}
+            type="button"
+            className="btn-ghost px-3 py-1.5 text-sm rounded text-red-600"
+          >🗑️ Limpar</button>
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locadorSalva: false } }));
+            }}
+            type="button"
+            className="btn-ghost px-3 py-1.5 text-sm rounded"
+          >✏️ Editar</button>
+        </div>
+      </div>
+
+      {/* ---------- 3. LOCATÁRIO ---------- */}
+      <div className="border rounded-lg p-3 bg-white">
+        <p className="text-sm font-medium mb-2">Assinatura do locatário</p>
+        <SignaturePad
+          label="Assinatura do locatário"
+          value={inspection.signatures?.locatario}
+          locked={locked || inspection.signatures?.locatarioSalva}
+          onSave={(dataUrl) => { window._assinaturaTempLocatario = dataUrl; }}
+        />
+        <div className="flex gap-2 mt-2 flex-wrap">
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              const dados = window._assinaturaTempLocatario;
+              if (dados) { onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locatario: dados, locatarioSalva: true } })); }
+            }}
+            type="button"
+            className="btn-primary px-3 py-1.5 text-sm rounded"
+          >💾 Salvar</button>
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locatario: null, locatarioSalva: false } }));
+            }}
+            type="button"
+            className="btn-ghost px-3 py-1.5 text-sm rounded text-red-600"
+          >🗑️ Limpar</button>
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locatarioSalva: false } }));
+            }}
+            type="button"
+            className="btn-ghost px-3 py-1.5 text-sm rounded"
+          >✏️ Editar</button>
+        </div>
+      </div>
+    </div>
+  );
 }
+
+// =====================================================================
+// 🖨️ RELATÓRIO E GERAÇÃO DE PDF
+// =====================================================================
 
 function mediaHtml(foto) {
   const cap = foto.date ? `<p style="font-size:10px;color:#a8828a;margin:5px 0 0;font-family:'JetBrains Mono',monospace">${escapeHtml(fmtDateTime(foto.date))}</p>` : "";
-  if (foto.type === "video") {
-    return `<div class="media-card"><video src="${foto.src}" controls style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:#000;display:block"></video><div style="padding:6px 8px">${cap || '<span style="font-size:10px;color:#a8828a">Vídeo</span>'}</div></div>`;
-  }
-  if (foto.type === "audio") {
-    return `<div class="media-card" style="width:180px"><div style="padding:10px 10px 4px"><audio src="${foto.src}" controls style="width:100%"></audio></div><div style="padding:0 10px 8px">${cap || '<span style="font-size:10px;color:#a8828a">Áudio</span>'}</div></div>`;
-  }
+  if (foto.type === "video") return `<div class="media-card"><video src="${foto.src}" controls style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:#000;display:block"></video><div style="padding:6px 8px">${cap || '<span style="font-size:10px;color:#a8828a">Vídeo</span>'}</div></div>`;
+  if (foto.type === "audio") return `<div class="media-card" style="width:180px"><div style="padding:10px 10px 4px"><audio src="${foto.src}" controls style="width:100%"></audio></div><div style="padding:0 10px 8px">${cap || '<span style="font-size:10px;color:#a8828a">Áudio</span>'}</div></div>`;
   const marcas = foto.marcas || null;
   const pontos = Array.isArray(marcas) ? marcas : (marcas?.points || []);
   const comentarioMarcacao = Array.isArray(marcas) ? "" : (marcas?.comentario || "");
   const marcasHtml = pontos.map((p, i) => `<div style="position:absolute;left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%);width:18px;height:18px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 2px #E23B3B;background:#E23B3B;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center">${i + 1}</div>`).join("");
   const comentarioHtml = comentarioMarcacao ? `<p style="font-size:10.5px;color:#b23e2a;margin:4px 0 0;font-weight:600">⚠ ${escapeHtml(comentarioMarcacao)}</p>` : "";
-  return `<div class="media-card"><div style="position:relative;width:100%;height:120px"><img src="${foto.src}" class="zoomable-photo" loading="lazy" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;cursor:zoom-in;display:block" />${marcasHtml}</div><div style="padding:6px 8px">${cap}${comentarioHtml}</div></div>`;
+  return `<div class="media-card"><div style="position:relative;width:100%;height:120px"><img src="${getUrlFoto(foto.src)}" class="zoomable-photo" loading="lazy" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;cursor:zoom-in;display:block" />${marcasHtml}</div><div style="padding:6px 8px">${cap}${comentarioHtml}</div></div>`;
 }
 
-// Builds a fully standalone, self-contained HTML document (light theme, print-ready)
-// so the report can be opened in a real new browser tab — this avoids relying on
-// window.print() inside the sandboxed artifact iframe, which some browsers block.
 function buildReportHTML(inspection, logo) {
   const totalItens = inspection.ambientes.reduce((a, amb) => a + amb.itens.length, 0);
   const avarias = inspection.ambientes.reduce((a, amb) => a + amb.itens.filter((it) => it.temDano).length, 0);
 
-  const medidoresList = [
-    { label: "Água", d: inspection.medidores.agua },
-    { label: "Energia", d: inspection.medidores.energia },
-    { label: "Gás", d: inspection.medidores.gas },
-  ].filter((m) => m.d.ativo);
+  const medidoresList = [{ label: "Água", d: inspection.medidores.agua }, { label: "Energia", d: inspection.medidores.energia }, { label: "Gás", d: inspection.medidores.gas }].filter((m) => m.d.ativo);
+  const chavesList = [...CHAVE_TIPOS.map((t) => ({ label: t.label, ...inspection.chaves[t.key] })), ...inspection.chaves.outras.map((o) => ({ label: o.nome, ...o }))].filter((c) => c.quantidade || c.observacoes || (c.fotos || []).length);
 
-  const chavesList = [
-    ...CHAVE_TIPOS.map((t) => ({ label: t.label, ...inspection.chaves[t.key] })),
-    ...inspection.chaves.outras.map((o) => ({ label: o.nome, ...o })),
-  ].filter((c) => c.quantidade || c.observacoes || (c.fotos || []).length);
-
-  const estadoColors = {
-    "Novo": ["#e5f6ec", "#2e8f57"], "Bom": ["#e5f6ec", "#2e8f57"],
-    "Regular": ["#fdf1dc", "#a97a1f"], "Ruim": ["#fbe4e1", "#b23e2a"],
-    "Péssimo": ["#f5d9dd", "#8e2e3d"], "Sem teste": ["#eef0f2", "#6b7280"],
-  };
+  const estadoColors = { "Novo": ["#e5f6ec", "#2e8f57"], "Bom": ["#e5f6ec", "#2e8f57"], "Regular": ["#fdf1dc", "#a97a1f"], "Ruim": ["#fbe4e1", "#b23e2a"], "Péssimo": ["#f5d9dd", "#8e2e3d"], "Sem teste": ["#eef0f2", "#6b7280"] };
 
   const ambientesHtml = inspection.ambientes.map((amb, ambIdx) => {
-    const fotosAmbienteHtml = (amb.fotos || []).length
-      ? `<div style="margin-bottom:14px"><p class="eyebrow">Fotos/vídeos gerais do ambiente</p><div class="media-grid">${amb.fotos.map(mediaHtml).join("")}</div></div>` : "";
+    const fotosAmbienteHtml = (amb.fotos || []).length ? `<div style="margin-bottom:14px"><p class="eyebrow">Fotos/vídeos gerais do ambiente</p><div class="media-grid">${amb.fotos.map(mediaHtml).join("")}</div></div>` : "";
     const itensHtml = amb.itens.map((item) => {
       const camposPreenchidos = ITEM_FIELD_DEFS.filter((f) => (item.campos || {})[f.key]);
       const estadoLabel = item.semTeste ? "Sem teste" : item.estado;
       const [bg, fg] = estadoColors[estadoLabel] || estadoColors["Sem teste"];
-      const camposLine = camposPreenchidos.length
-        ? `<p class="meta-line">${camposPreenchidos.map((f) => `<strong>${f.label}:</strong> ${escapeHtml(item.campos[f.key])}`).join(" &nbsp;·&nbsp; ")}</p>` : "";
+      const camposLine = camposPreenchidos.length ? `<p class="meta-line">${camposPreenchidos.map((f) => `<strong>${f.label}:</strong> ${escapeHtml(item.campos[f.key])}`).join(" &nbsp;·&nbsp; ")}</p>` : "";
       const obsLine = item.observacoes ? `<p class="obs-line">${escapeHtml(item.observacoes)}</p>` : "";
       const danoLine = item.temDano && item.descricaoDano ? `<p class="dano-line">⚠ Avaria: ${escapeHtml(item.descricaoDano)}</p>` : "";
       const fotosHtml = (item.fotos || []).length ? `<div class="media-grid" style="margin-top:8px">${item.fotos.map(mediaHtml).join("")}</div>` : "";
-      return `
-        <div class="item-card">
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
-            <strong style="font-size:14px">${escapeHtml(item.nome)}</strong>
-            <span class="pill" style="background:${bg};color:${fg}">${escapeHtml(estadoLabel)}</span>
-            ${item.temDano ? `<span class="pill" style="background:#fbe4e1;color:#b23e2a">Avaria</span>` : ""}
-          </div>
-          ${camposLine}${obsLine}${danoLine}${fotosHtml}
-        </div>`;
+      return `<div class="item-card"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><strong style="font-size:14px">${escapeHtml(item.nome)}</strong><span class="pill" style="background:${bg};color:${fg}">${escapeHtml(estadoLabel)}</span>${item.temDano ? `<span class="pill" style="background:#fbe4e1;color:#b23e2a">Avaria</span>` : ""}</div>${camposLine}${obsLine}${danoLine}${fotosHtml}</div>`;
     }).join("");
-    return `
-      <div class="section-card">
-        <h2 class="section-title"><span class="section-num">${String(ambIdx + 1).padStart(2, "0")}</span>${escapeHtml(amb.nome)}</h2>
-        ${fotosAmbienteHtml}
-        ${itensHtml}
-      </div>`;
+    return `<div class="section-card"><h2 class="section-title"><span class="section-num">${String(ambIdx + 1).padStart(2, "0")}</span>${escapeHtml(amb.nome)}</h2>${fotosAmbienteHtml}${itensHtml}</div>`;
   }).join("");
 
-  const medidoresHtml = medidoresList.length ? `
-    <div class="section-card">
-      <h2 class="section-title"><span class="section-num" style="background:#3d7a57">💧</span>Medidores</h2>
-      ${medidoresList.map((m) => `
-        <div class="item-card">
-          <strong style="font-size:14px">${m.label}</strong>
-          <p class="meta-line">${[
-            m.d.numero && `<strong>Nº:</strong> ${m.d.numero}`,
-            m.d.leitura && `<strong>Leitura:</strong> ${m.d.leitura}${m.d.unidade ? " " + m.d.unidade : ""}`,
-            m.d.concessionaria && `<strong>Concessionária:</strong> ${m.d.concessionaria}`,
-          ].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>
-          ${m.d.observacoes ? `<p class="obs-line">${escapeHtml(m.d.observacoes)}</p>` : ""}
-          ${(m.d.fotos || []).length ? `<div class="media-grid" style="margin-top:8px">${m.d.fotos.map(mediaHtml).join("")}</div>` : ""}
-        </div>
-      `).join("")}
-    </div>` : "";
+  const medidoresHtml = medidoresList.length ? `<div class="section-card"><h2 class="section-title"><span class="section-num" style="background:#3d7a57">💧</span>Medidores</h2>${medidoresList.map((m) => `<div class="item-card"><strong style="font-size:14px">${m.label}</strong><p class="meta-line">${[m.d.numero && `<strong>Nº:</strong> ${m.d.numero}`, m.d.leitura && `<strong>Leitura:</strong> ${m.d.leitura}${m.d.unidade ? " " + m.d.unidade : ""}`, m.d.concessionaria && `<strong>Concessionária:</strong> ${m.d.concessionaria}`].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>${m.d.observacoes ? `<p class="obs-line">${escapeHtml(m.d.observacoes)}</p>` : ""}${(m.d.fotos || []).length ? `<div class="media-grid" style="margin-top:8px">${m.d.fotos.map(mediaHtml).join("")}</div>` : ""}</div>`).join("")}</div>` : "";
 
-  const chavesHtml = chavesList.length ? `
-    <div class="section-card">
-      <h2 class="section-title"><span class="section-num" style="background:#a97a1f">🔑</span>Chaves e acessos</h2>
-      ${chavesList.map((c) => `
-        <div class="item-card">
-          <strong style="font-size:14px">${escapeHtml(c.label)}</strong>
-          <p class="meta-line">${[c.quantidade && `<strong>Qtd.:</strong> ${c.quantidade}`, c.observacoes && escapeHtml(c.observacoes)].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>
-          ${(c.fotos || []).length ? `<div class="media-grid" style="margin-top:8px">${c.fotos.map(mediaHtml).join("")}</div>` : ""}
-        </div>
-      `).join("")}
-    </div>` : "";
+  const chavesHtml = chavesList.length ? `<div class="section-card"><h2 class="section-title"><span class="section-num" style="background:#a97a1f">🔑</span>Chaves e acessos</h2>${chavesList.map((c) => `<div class="item-card"><strong style="font-size:14px">${escapeHtml(c.label)}</strong><p class="meta-line">${[c.quantidade && `<strong>Qtd.:</strong> ${c.quantidade}`, c.observacoes && escapeHtml(c.observacoes)].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>${(c.fotos || []).length ? `<div class="media-grid" style="margin-top:8px">${c.fotos.map(mediaHtml).join("")}</div>` : ""}</div>`).join("")}</div>` : "";
 
-  const capaHtml = inspection.capaFoto ? `
-    <div style="margin-bottom:22px">
-      <img src="${inspection.capaFoto.src}" class="zoomable-photo" style="width:100%;max-height:300px;object-fit:cover;border-radius:14px;cursor:zoom-in;display:block;box-shadow:0 4px 16px rgba(0,0,0,0.12)" />
-    </div>` : "";
+  const capaHtml = inspection.capaFoto ? `<div style="margin-bottom:22px"><img src="${getUrlFoto(inspection.capaFoto.src)}" class="zoomable-photo" style="width:100%;max-height:300px;object-fit:cover;border-radius:14px;cursor:zoom-in;display:block;box-shadow:0 4px 16px rgba(0,0,0,0.12)" /></div>` : "";
 
-  const sigHtml = (label, src) => `
-    <div style="flex:1;min-width:200px">
-      <p class="eyebrow">${label}</p>
-      ${src ? `<img src="${src}" style="width:100%;height:90px;object-fit:contain;border:1px solid #e7dcd6;border-radius:10px;background:#fff" />` : `<div style="width:100%;height:90px;border:1.5px dashed #d9cec7;border-radius:10px"></div>`}
-      <div style="border-top:1px solid #e7dcd6;margin-top:36px;padding-top:4px;font-size:10px;text-align:center;color:#a8828a">Assinatura manual (se necessário)</div>
-    </div>`;
+  const sigHtml = (label, src) => `<div style="flex:1;min-width:200px"><p class="eyebrow">${label}</p>${src ? `<img src="${getUrlFoto(src)}" style="width:100%;height:90px;object-fit:contain;border:1px solid #e7dcd6;border-radius:10px;background:#fff" />` : `<div style="width:100%;height:90px;border:1.5px dashed #d9cec7;border-radius:10px"></div>`}<div style="border-top:1px solid #e7dcd6;margin-top:36px;padding-top:4px;font-size:10px;text-align:center;color:#a8828a">Assinatura manual (se necessário)</div></div>`;
 
-  const logoHtml = logo ? `<img src="${logo}" style="height:56px;max-width:150px;object-fit:contain;border-radius:8px" />` : "";
+  const logoHtml = logo ? `<img src="${getUrlFoto(logo)}" style="height:56px;max-width:150px;object-fit:contain;border-radius:8px" />` : "";
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -3779,7 +3397,7 @@ function buildReportHTML(inspection, logo) {
   <div class="toolbar"><button onclick="window.print()">Imprimir / salvar como PDF</button></div>
   <div id="photo-lightbox" onclick="this.classList.remove('open')">
     <button onclick="event.stopPropagation();document.getElementById('photo-lightbox').classList.remove('open')">✕</button>
-    <img id="photo-lightbox-img" src="" alt="" />
+    <img id="photo-lightbox-img" src="${getUrlFoto(inspection.capaFoto?.src||inspection.capaFoto)}" alt=""/>
   </div>
   <div class="wrap">
     <div style="height:6px;background:linear-gradient(90deg,#A23A4C,#c96a7a);border-radius:999px;margin-bottom:20px"></div>
@@ -3974,7 +3592,7 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
               {logoLoaded && (
                 logo ? (
                   <div className="relative group">
-                    <img src={logo} alt="Logo" style={{ height: 52, maxWidth: 140, objectFit: "contain" }} />
+                    <img src={getUrlFoto(logo)} alt="Logo" style={{ height: 52, maxWidth: 140, objectFit: "contain" }} />
                     <button
                       onClick={handleRemoveLogo}
                       className="no-print absolute -top-2 -right-2 rounded-full bg-black/60 text-white flex items-center justify-center"
@@ -4009,7 +3627,7 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
           {inspection.capaFoto && (
             <div className="mb-6 print-block">
               <img
-                src={inspection.capaFoto.src}
+                src={getUrlFoto(inspection.capaFoto.src)}
                 alt="Foto do imóvel"
                 loading="lazy"
                 className="cursor-zoom-in"
@@ -4050,7 +3668,7 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
                     {amb.fotos.map((foto, fi) => (
                       <div key={fi} className="text-center">
                         <img
-                          src={foto.src}
+                          src={getUrlFoto(foto.src)}
                           alt=""
                           loading="lazy"
                           className="rounded-md object-cover cursor-zoom-in"
@@ -4098,7 +3716,7 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
                               <div key={i} className="text-center" style={{ maxWidth: 90 }}>
                                 <div className="relative inline-block" style={{ width: 70, height: 70 }}>
                                   <img
-                                    src={foto.src}
+                                    src={getUrlFoto(foto.src)}
                                     alt=""
                                     loading="lazy"
                                     className="rounded-md object-cover cursor-zoom-in"

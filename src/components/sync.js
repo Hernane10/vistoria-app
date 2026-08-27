@@ -1,179 +1,233 @@
 import { supabase, supabaseEnabled } from './supabaseClient.js';
 
 // =====================================================
-// ✅ FUNÇÃO DE UPLOAD — 1 FOTO POR VEZ (corrigida sem erro de blob)
+// ⚡ REDUZIR IMAGEM
 // =====================================================
-async function uploadFotoVistoria(userId, caminhoPasta, foto, index = 0) {
-  console.log(`📤 Enviando foto ${index + 1} para: ${caminhoPasta}`);
-
-  // Extrai .src se for objeto
-  let fotoBase64 = foto;
-  if (foto && typeof foto === 'object' && foto.src) {
-    fotoBase64 = foto.src;
-  }
-
-  if (!fotoBase64 || typeof fotoBase64 !== 'string') {
-    console.warn(`⚠️ Foto ${index} inválida — pulando`);
-    return null;
-  }
-
-  // Limpa o prefixo base64
-  const base64Data = fotoBase64.includes(',') 
-    ? fotoBase64.split(',')[1] 
-    : fotoBase64;
-
-  // Detecta tipo de imagem/vídeo
-  let mimeType = 'image/jpeg';
-  if (fotoBase64.includes('video/mp4')) mimeType = 'video/mp4';
-  else if (fotoBase64.includes('video/')) mimeType = 'video/mp4';
-  else if (fotoBase64.includes('image/png')) mimeType = 'image/png';
-  else if (fotoBase64.includes('image/webp')) mimeType = 'image/webp';
-
-  // Converte base64 → Blob
-  const byteCharacters = atob(base64Data);
-  const byteNumbers = new Array(byteCharacters.length);
-  for (let i = 0; i < byteCharacters.length; i++) {
-    byteNumbers[i] = byteCharacters.charCodeAt(i);
-  }
-  const blob = new Blob([new Uint8Array(byteNumbers)], { type: mimeType });
-  console.log(`📦 Blob criado — tipo: ${mimeType}, tamanho: ${blob.size} bytes`);
-
-  // Nome único do arquivo
-  const caminhoArquivo = `${caminhoPasta}/foto_${index}_${Date.now()}.jpg`;
-
-  // Upload para o Storage
-  const { data, error } = await supabase
-    .storage
-    .from('vistoria-fotos')
-    .upload(caminhoArquivo, blob, {
-      contentType: mimeType,
-      upsert: true,
-    });
-
-  if (error) {
-    console.error(`❌ Falha na foto ${index}:`, error);
-    return null;
-  }
-
-  console.log(`✅ UPLOAD OK! → ${data.path}`);
-  return { path: data.path, tipo: 'storage', src: fotoBase64 };
+async function reduzirImagem(base64, qualidade = 0.8, larguraMax = 1200) {
+  return new Promise((resolve) => {
+    if (base64.length < 150000) { resolve(base64); return; }
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let w = img.width, h = img.height;
+      if (w > larguraMax) {
+        const proporcao = larguraMax / w;
+        w = larguraMax;
+        h = Math.round(h * proporcao);
+      }
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', qualidade));
+    };
+    img.onerror = () => resolve(base64);
+    img.src = base64;
+  });
 }
 
 // =====================================================
-// ✅ FUNÇÃO AUXILIAR — ENVIA TODO O ARRAY DE FOTOS (sem limite!)
+// ✅ GERAR URL PARA EXIBIR FOTO
 // =====================================================
-async function enviarLoteDeFotos(userId, vistoriaId, fotos, subPasta) {
-  if (!fotos || !Array.isArray(fotos) || fotos.length === 0) {
-    console.log(`ℹ️ ${subPasta}: Nenhuma foto para enviar`);
-    return [];
+export async function getUrlFoto(foto) {
+  if (!foto) return null;
+  if (typeof foto === 'string') {
+    if (foto.startsWith('http') || foto.startsWith('blob:') || foto.startsWith('data:')) return foto;
+  }
+  if (foto.path && foto.tipo === 'storage') {
+    try {
+      const { data } = await supabase.storage
+        .from('vistoria-fotos')
+        .createSignedUrl(foto.path, 3600 * 24 * 30);
+      return data?.signedUrl || null;
+    } catch { return null; }
+  }
+  if (foto.src && foto.src.startsWith('data:')) return foto.src;
+  return null;
+}
+
+// =====================================================
+// ✅ CARREGAR TODAS AS URLs DAS FOTOS
+// =====================================================
+export async function carregarUrlsFotos(vistoria) {
+  if (!vistoria) return vistoria;
+  const v = structuredClone(vistoria);
+
+  if (v.capaFoto) v.capaFotoUrl = await getUrlFoto(v.capaFoto);
+
+  if (v.ambientes) {
+    for (let i = 0; i < v.ambientes.length; i++) {
+      const amb = v.ambientes[i];
+      if (amb.fotos?.length) v.ambientes[i].fotosUrls = await Promise.all(amb.fotos.map(getUrlFoto));
+      if (amb.itens?.length) {
+        for (let j = 0; j < amb.itens.length; j++) {
+          if (amb.itens[j].fotos?.length)
+            v.ambientes[i].itens[j].fotosUrls = await Promise.all(amb.itens[j].fotos.map(getUrlFoto));
+        }
+      }
+    }
   }
 
-  console.log(`📸 ${subPasta}: ${fotos.length} foto(s) encontrada(s) — enviando TODAS...`);
+  if (v.medidores) {
+    for (const [nome, med] of Object.entries(v.medidores)) {
+      if (med?.fotos?.length) v.medidores[nome].fotosUrls = await Promise.all(med.fotos.map(getUrlFoto));
+    }
+  }
+
+  if (v.chaves) {
+    for (const [nome, chave] of Object.entries(v.chaves)) {
+      if (Array.isArray(chave)) {
+        for (let i = 0; i < chave.length; i++) {
+          if (chave[i]?.fotos?.length)
+            v.chaves[nome][i].fotosUrls = await Promise.all(chave[i].fotos.map(getUrlFoto));
+        }
+      } else if (chave?.fotos?.length) {
+        v.chaves[nome].fotosUrls = await Promise.all(chave.fotos.map(getUrlFoto));
+      }
+    }
+  }
+
+  if (v.parecerTecnico?.fotos?.length)
+    v.parecerTecnico.fotosUrls = await Promise.all(v.parecerTecnico.fotos.map(getUrlFoto));
+
+  return v;
+}
+
+// =====================================================
+// ✅ UPLOAD DE FOTO
+// =====================================================
+async function uploadFotoVistoria(userId, caminhoPasta, foto, index = 0) {
+  let fotoBase64 = foto;
+  if (foto && typeof foto === 'object' && foto.src) fotoBase64 = foto.src;
+  if (foto?.path && foto?.tipo === 'storage') return { path: foto.path, tipo: 'storage' };
+  if (!fotoBase64 || typeof fotoBase64 !== 'string') return null;
+
+  fotoBase64 = await reduzirImagem(fotoBase64);
+  const base64Data = fotoBase64.includes(',') ? fotoBase64.split(',')[1] : fotoBase64;
+  let mimeType = 'image/jpeg';
+  if (fotoBase64.includes('image/png')) mimeType = 'image/png';
+  else if (fotoBase64.includes('image/webp')) mimeType = 'image/webp';
+
+  const byteCharacters = atob(base64Data);
+  const byteNumbers = Array.from({ length: byteCharacters.length }, (_, i) => byteCharacters.charCodeAt(i));
+  const blob = new Blob([new Uint8Array(byteNumbers)], { type: mimeType });
+  const caminhoArquivo = `${caminhoPasta}/foto_${index}_${Date.now()}.jpg`;
+
+  const { data, error } = await supabase.storage
+    .from('vistoria-fotos')
+    .upload(caminhoArquivo, blob, { contentType: mimeType, upsert: false });
+
+  if (error) return null;
+  return { path: data.path, tipo: 'storage' };
+}
+
+async function enviarLoteDeFotos(userId, vistoriaId, fotos, subPasta) {
+  if (!fotos?.length) return [];
+  console.log(`📸 ${subPasta}: ${fotos.length} foto(s)`);
   const caminhoBase = `${userId}/${vistoriaId}/${subPasta}`;
   const resultados = [];
-
-  // 🔄 PERCORRE TODO O ARRAY — NÃO IMPORTA SE É 1 OU 100!
   for (let i = 0; i < fotos.length; i++) {
     const res = await uploadFotoVistoria(userId, caminhoBase, fotos[i], i);
     if (res) resultados.push(res);
+    await new Promise(r => setTimeout(r, 50));
   }
-
-  console.log(`✅ ${subPasta}: ${resultados.length}/${fotos.length} enviada(s) com sucesso!`);
   return resultados;
 }
 
-// =====================================================
-// ✅ AUTENTICAÇÃO
-// =====================================================
+function limparDadosParaSalvar(vistoria) {
+  const dados = structuredClone(vistoria);
+  if (dados.capaFoto) dados.capaFoto = dados.capaFoto.path ? { path: dados.capaFoto.path, tipo: 'storage' } : null;
+  if (dados.ambientes) {
+    dados.ambientes = dados.ambientes.map(amb => ({
+      ...amb,
+      fotos: amb.fotos?.map(f => f?.path ? { path: f.path, tipo: 'storage' } : null).filter(Boolean) || [],
+      itens: amb.itens?.map(item => ({
+        ...item,
+        fotos: item.fotos?.map(f => f?.path ? { path: f.path, tipo: 'storage' } : null).filter(Boolean) || []
+      })) || []
+    }));
+  }
+  if (dados.medidores) {
+    for (const [_, med] of Object.entries(dados.medidores)) {
+      if (med?.fotos) med.fotos = med.fotos.map(f => f?.path ? { path: f.path, tipo: 'storage' } : null).filter(Boolean);
+    }
+  }
+  if (dados.chaves) {
+    for (const [nome, chave] of Object.entries(dados.chaves)) {
+      if (Array.isArray(chave)) {
+        dados.chaves[nome] = chave.map(item => ({
+          ...item,
+          fotos: item.fotos?.map(f => f?.path ? { path: f.path, tipo: 'storage' } : null).filter(Boolean) || []
+        }));
+      } else if (chave?.fotos) {
+        chave.fotos = chave.fotos.map(f => f?.path ? { path: f.path, tipo: 'storage' } : null).filter(Boolean);
+      }
+    }
+  }
+  if (dados.parecerTecnico?.fotos) {
+    dados.parecerTecnico.fotos = dados.parecerTecnico.fotos.map(f => f?.path ? { path: f.path, tipo: 'storage' } : null).filter(Boolean);
+  }
+  return dados;
+}
+
 export async function ensureSignedIn() {
   if (!supabaseEnabled) throw new Error("Supabase não configurado.");
-  const { data: { session }, error } = await supabase.auth.getSession();
-  if (error) throw error;
+  const { data: { session } } = await supabase.auth.getSession();
   if (session?.user) return session.user;
-  const { data: { user }, error: signInError } = await supabase.auth.signInAnonymously();
-  if (signInError) throw signInError;
+  const { data: { user }, error } = await supabase.auth.signInAnonymously();
+  if (error) throw error;
   return user;
 }
 
-// =====================================================
-// ✅ FUNÇÃO PRINCIPAL — ENVIA TUDO! CAPA, AMBIENTES, ITENS, MEDIDORES, CHAVES, PARECER
-// =====================================================
 export async function pushInspections(inspections, onProgress) {
-  console.log('🔄 INICIANDO ENVIO COMPLETO DE', inspections.length, 'VISTORIA(S)...');
+  console.log('🔄 Enviando', inspections.length, 'vistoria(s)...');
   const user = await ensureSignedIn();
-  console.log('👤 Usuário:', user.id);
-  
   let done = 0;
 
   for (const insp of inspections) {
-    console.log('📋 Processando vistoria:', insp.id);
+    console.log(`========== VISTORIA: ${insp.id} ==========`);
+    const dadosParaSalvar = limparDadosParaSalvar(insp);
     
-    // Salva no banco primeiro
     const { error: saveError } = await supabase.from("inspections").upsert({
-      id: insp.id,
-      owner_id: user.id,
+      id: insp.id, owner_id: user.id,
       data: insp.dataVistoria || new Date().toISOString().split('T')[0],
-      dados: insp
+      dados: dadosParaSalvar
     });
-
     if (saveError) throw saveError;
-    done++;
-    onProgress?.(done, inspections.length);
+    console.log(`✅ DADOS SALVOS`);
 
     let totalFotos = 0;
-    let vistoriaAtualizada = { ...insp };
     const userId = user.id;
     const vistoriaId = insp.id;
+    const fotosAtualizadas = { ...dadosParaSalvar };
 
-    // =====================================================
-    // 🖼️ 1. FOTO DE CAPA
-    // =====================================================
-    console.log('🖼️ === FOTO DE CAPA ===');
-    const fotosCapa = insp.capaFoto ? [insp.capaFoto] : [];
-    const capaEnviadas = await enviarLoteDeFotos(userId, vistoriaId, fotosCapa, 'capa');
-    totalFotos += capaEnviadas.length;
-    if (capaEnviadas.length > 0) {
-      vistoriaAtualizada.capaFoto = { ...insp.capaFoto, ...capaEnviadas[0] };
+    if (insp.capaFoto && !insp.capaFoto.path) {
+      const enviadas = await enviarLoteDeFotos(userId, vistoriaId, [insp.capaFoto], 'capa');
+      if (enviadas[0]) fotosAtualizadas.capaFoto = enviadas[0];
+      totalFotos += enviadas.length;
     }
 
-    // =====================================================
-    // 🏠 2. AMBIENTES — FOTOS GERAIS + FOTOS DOS ITENS
-    // =====================================================
-    if (insp.ambientes && Array.isArray(insp.ambientes)) {
-      vistoriaAtualizada.ambientes = [...insp.ambientes];
-      
+    if (insp.ambientes?.length) {
+      fotosAtualizadas.ambientes = [...insp.ambientes];
       for (let ambIndex = 0; ambIndex < insp.ambientes.length; ambIndex++) {
         const amb = insp.ambientes[ambIndex];
-        console.log(`🏠 === AMBIENTE ${ambIndex}: ${amb.nome} ===`);
-
-        // 📸 FOTOS GERAIS DO AMBIENTE — TODAS, SEM LIMITE!
-        const fotosAmbiente = amb.fotos && Array.isArray(amb.fotos) ? amb.fotos : [];
-        const caminhoAmb = `ambiente-${ambIndex}`;
-        const ambEnviadas = await enviarLoteDeFotos(userId, vistoriaId, fotosAmbiente, caminhoAmb);
-        totalFotos += ambEnviadas.length;
-        vistoriaAtualizada.ambientes[ambIndex].fotos = ambEnviadas.length > 0 
-          ? ambEnviadas.map((r, i) => ({ ...amb.fotos[i], ...r })) 
-          : amb.fotos;
-
-        // 📦 FOTOS DOS ITENS DO AMBIENTE — TODAS, SEM LIMITE!
-        if (amb.itens && Array.isArray(amb.itens)) {
+        if (amb.fotos?.length) {
+          const fotosNovas = amb.fotos.filter(f => !f?.path);
+          if (fotosNovas.length) {
+            const enviadas = await enviarLoteDeFotos(userId, vistoriaId, fotosNovas, `ambiente-${ambIndex}`);
+            fotosAtualizadas.ambientes[ambIndex].fotos = [...amb.fotos.filter(f => f?.path), ...enviadas];
+            totalFotos += enviadas.length;
+          }
+        }
+        if (amb.itens?.length) {
           for (let itemIndex = 0; itemIndex < amb.itens.length; itemIndex++) {
             const item = amb.itens[itemIndex];
-            console.log(`📦 Item ${itemIndex}: ${item.nome || `Item ${itemIndex}`}`);
-            
-            // Pega fotos do item — pode ser .fotos (array), .foto, .midia, etc.
-            let fotosItem = item.fotos || (item.foto ? [item.foto] : null) || (item.midia ? [item.midia] : null);
-            if (!fotosItem || !Array.isArray(fotosItem)) continue;
-            
-            const caminhoItem = `ambiente-${ambIndex}/item-${itemIndex}`;
-            const itemEnviadas = await enviarLoteDeFotos(userId, vistoriaId, fotosItem, caminhoItem);
-            totalFotos += itemEnviadas.length;
-            
-            if (itemEnviadas.length > 0) {
-              vistoriaAtualizada.ambientes[ambIndex].itens[itemIndex].fotos = itemEnviadas.map((r, i) => ({ ...fotosItem[i], ...r }));
-              // Mantém compatibilidade com .foto se tiver só 1
-              if (itemEnviadas.length === 1) {
-                vistoriaAtualizada.ambientes[ambIndex].itens[itemIndex].foto = { ...fotosItem[0], ...itemEnviadas[0] };
+            if (item.fotos?.length) {
+              const fotosNovas = item.fotos.filter(f => !f?.path);
+              if (fotosNovas.length) {
+                const enviadas = await enviarLoteDeFotos(userId, vistoriaId, fotosNovas, `ambiente-${ambIndex}/item-${itemIndex}`);
+                fotosAtualizadas.ambientes[ambIndex].itens[itemIndex].fotos = [...item.fotos.filter(f => f?.path), ...enviadas];
+                totalFotos += enviadas.length;
               }
             }
           }
@@ -181,183 +235,73 @@ export async function pushInspections(inspections, onProgress) {
       }
     }
 
-    // =====================================================
-    // ⚡ 3. MEDIDORES — AGORA É OBJETO: agua, energia, gas — TODAS AS FOTOS DE CADA UM!
-    // =====================================================
-    console.log('⚡ === MEDIDORES ===');
-    const medidores = insp.medidores;
-    
-    if (medidores && typeof medidores === 'object') {
-      vistoriaAtualizada.medidores = { ...medidores };
-      
-      for (const [nomeMed, dadosMed] of Object.entries(medidores)) {
-        if (!dadosMed) continue;
-        console.log(`🔍 Medidor: ${nomeMed}`);
-        
-        // Pega TODAS as fotos do medidor — campo "fotos" (array)
-        let fotosMed = dadosMed.fotos || (dadosMed.foto ? [dadosMed.foto] : null);
-        if (!fotosMed || !Array.isArray(fotosMed) || fotosMed.length === 0) {
-          console.log(`⚠️ Medidor "${nomeMed}" sem fotos — pulando`);
-          continue;
-        }
-        
-        const caminhoMed = `medidor-${nomeMed}`;
-        const medEnviadas = await enviarLoteDeFotos(userId, vistoriaId, fotosMed, caminhoMed);
-        totalFotos += medEnviadas.length;
-        
-        // Salva todos os caminhos de volta
-        vistoriaAtualizada.medidores[nomeMed] = {
-          ...dadosMed,
-          fotos: medEnviadas.map((r, i) => ({ ...fotosMed[i], ...r }))
-        };
-        // Compatibilidade com .foto
-        if (medEnviadas.length === 1) {
-          vistoriaAtualizada.medidores[nomeMed].foto = { ...fotosMed[0], ...medEnviadas[0] };
+    if (insp.medidores && typeof insp.medidores === 'object') {
+      fotosAtualizadas.medidores = { ...insp.medidores };
+      for (const [nomeMed, dadosMed] of Object.entries(insp.medidores)) {
+        if (!dadosMed?.fotos?.length) continue;
+        const fotosNovas = dadosMed.fotos.filter(f => !f?.path);
+        if (!fotosNovas.length) continue;
+        const enviadas = await enviarLoteDeFotos(userId, vistoriaId, fotosNovas, `medidor-${nomeMed}`);
+        fotosAtualizadas.medidores[nomeMed].fotos = [...dadosMed.fotos.filter(f => f?.path), ...enviadas];
+        totalFotos += enviadas.length;
+      }
+    }
+
+    if (insp.chaves && typeof insp.chaves === 'object') {
+      fotosAtualizadas.chaves = { ...insp.chaves };
+      for (const [nomeChave, dadosChave] of Object.entries(insp.chaves)) {
+        if (!dadosChave) continue;
+        if (Array.isArray(dadosChave)) {
+          for (let i = 0; i < dadosChave.length; i++) {
+            if (!dadosChave[i]?.fotos?.length) continue;
+            const fotosNovas = dadosChave[i].fotos.filter(f => !f?.path);
+            if (!fotosNovas.length) continue;
+            const enviadas = await enviarLoteDeFotos(userId, vistoriaId, fotosNovas, `chave-${nomeChave}-${i}`);
+            fotosAtualizadas.chaves[nomeChave][i].fotos = [...dadosChave[i].fotos.filter(f => f?.path), ...enviadas];
+            totalFotos += enviadas.length;
+          }
+        } else if (dadosChave?.fotos?.length) {
+          const fotosNovas = dadosChave.fotos.filter(f => !f?.path);
+          if (!fotosNovas.length) continue;
+          const enviadas = await enviarLoteDeFotos(userId, vistoriaId, fotosNovas, `chave-${nomeChave}`);
+          fotosAtualizadas.chaves[nomeChave].fotos = [...dadosChave.fotos.filter(f => f?.path), ...enviadas];
+          totalFotos += enviadas.length;
         }
       }
     }
 
-    // =====================================================
-    // 🔑 4. CHAVES — TODAS AS FOTOS
-    // =====================================================
-    if (insp.chaves && Array.isArray(insp.chaves)) {
-      vistoriaAtualizada.chaves = [...insp.chaves];
-      
-      for (let chaveIndex = 0; chaveIndex < insp.chaves.length; chaveIndex++) {
-        const chave = insp.chaves[chaveIndex];
-        let fotosChave = chave.fotos || (chave.foto ? [chave.foto] : null);
-        if (!fotosChave || !Array.isArray(fotosChave) || fotosChave.length === 0) continue;
-        
-        const caminhoChave = `chave-${chaveIndex}`;
-        const chaveEnviadas = await enviarLoteDeFotos(userId, vistoriaId, fotosChave, caminhoChave);
-        totalFotos += chaveEnviadas.length;
-        
-        vistoriaAtualizada.chaves[chaveIndex].fotos = chaveEnviadas.map((r, i) => ({ ...fotosChave[i], ...r }));
-        if (chaveEnviadas.length === 1) {
-          vistoriaAtualizada.chaves[chaveIndex].foto = { ...fotosChave[0], ...chaveEnviadas[0] };
-        }
+    if (insp.parecerTecnico?.fotos?.length) {
+      const fotosNovas = insp.parecerTecnico.fotos.filter(f => !f?.path);
+      if (fotosNovas.length) {
+        const enviadas = await enviarLoteDeFotos(userId, vistoriaId, fotosNovas, 'parecer');
+        fotosAtualizadas.parecerTecnico.fotos = [...insp.parecerTecnico.fotos.filter(f => f?.path), ...enviadas];
+        totalFotos += enviadas.length;
       }
     }
 
-    // =====================================================
-    // 📝 5. PARECER TÉCNICO — FOTOS
-    // =====================================================
-    if (insp.parecerTecnico) {
-      let fotosParecer = insp.parecerTecnico.fotos || (insp.parecerTecnico.foto ? [insp.parecerTecnico.foto] : null);
-      if (fotosParecer && Array.isArray(fotosParecer) && fotosParecer.length > 0) {
-        console.log('📝 === PARECER TÉCNICO ===');
-        const parecerEnviadas = await enviarLoteDeFotos(userId, vistoriaId, fotosParecer, 'parecer');
-        totalFotos += parecerEnviadas.length;
-        vistoriaAtualizada.parecerTecnico = {
-          ...insp.parecerTecnico,
-          fotos: parecerEnviadas.map((r, i) => ({ ...fotosParecer[i], ...r }))
-        };
-        if (parecerEnviadas.length === 1) {
-          vistoriaAtualizada.parecerTecnico.foto = { ...fotosParecer[0], ...parecerEnviadas[0] };
-        }
-      }
-    }
-
-    // =====================================================
-    // ✅ FINALIZA — ATUALIZA BANCO
-    // =====================================================
-    console.log('=========================================');
     console.log(`📸 TOTAL DE FOTOS ENVIADAS: ${totalFotos}`);
-    console.log('=========================================');
-
     if (totalFotos > 0) {
-      console.log('🔄 Atualizando banco com caminhos das fotos...');
-      await supabase.from("inspections").update({
-        dados: vistoriaAtualizada
-      }).eq('id', insp.id);
+      await supabase.from("inspections").update({ dados: fotosAtualizadas }).eq('id', insp.id);
     }
-  }
 
-  console.log('🎉 ENVIO FINALIZADO! Vistorias:', done);
+    done++;
+    onProgress?.(done, inspections.length);
+    console.log(`✅ VISTORIA ${insp.id} — FINALIZADA!\n`);
+  }
+  console.log('🎉 TODAS ENVIADAS COM SUCESSO!');
   return done;
 }
 
-// =====================================================
-// ✅ BAIXAR / SINCRONIZAR — PEGA AS FOTOS DE VOLTA
-// =====================================================
 export async function pullInspections() {
   const user = await ensureSignedIn();
   const { data, error } = await supabase
-    .from("inspections")
-    .select("*")
-    .eq("owner_id", user.id)
+    .from("inspections").select("*").eq("owner_id", user.id)
     .order("updated_at", { ascending: false });
-
   if (error) throw error;
-
-  // Gera URLs assinadas para exibir as fotos
-  const gerarUrlFoto = async (foto) => {
-    if (!foto) return foto;
-    if (typeof foto === 'string') return foto;
-    if (foto.tipo === 'storage' && foto.path) {
-      try {
-        const { data: urlData } = await supabase.storage
-          .from('vistoria-fotos')
-          .createSignedUrl(foto.path, 3600 * 24 * 7);
-        return urlData?.signedUrl || foto.path;
-      } catch {
-        return foto.path;
-      }
-    }
-    return foto;
-  };
-
-  // Processa todas as fotos para exibição
-  const processarFotos = async (item) => {
-    if (!item) return item;
-    if (item.fotos && Array.isArray(item.fotos)) {
-      item.fotos = await Promise.all(item.fotos.map(f => gerarUrlFoto(f)));
-    }
-    if (item.foto) item.foto = await gerarUrlFoto(item.foto);
-    return item;
-  };
-
-  const resultado = await Promise.all(
-    (data || []).map(async (row) => {
-      const vistoria = { ...row.dados };
-
-      // Capa
-      if (vistoria.capaFoto) vistoria.capaFoto = await gerarUrlFoto(vistoria.capaFoto);
-
-      // Ambientes e itens
-      if (vistoria.ambientes) {
-        for (const amb of vistoria.ambientes) {
-          await processarFotos(amb);
-          if (amb.itens) {
-            for (const item of amb.itens) {
-              await processarFotos(item);
-            }
-          }
-        }
-      }
-
-      // Medidores
-      if (vistoria.medidores) {
-        for (const [_, med] of Object.entries(vistoria.medidores)) {
-          await processarFotos(med);
-        }
-      }
-
-      // Chaves
-      if (vistoria.chaves) {
-        for (const chave of vistoria.chaves) {
-          await processarFotos(chave);
-        }
-      }
-
-      // Parecer
-      if (vistoria.parecerTecnico) await processarFotos(vistoria.parecerTecnico);
-
-      return { id: row.id, data: row.data, ...vistoria };
-    })
-  );
-
-  return resultado;
+  return Promise.all((data || []).map(async row => {
+    const vistoria = { ...row.dados, id: row.id, data: row.data };
+    return await carregarUrlsFotos(vistoria);
+  }));
 }
 
 export async function deleteInspectionRemote(id) {
