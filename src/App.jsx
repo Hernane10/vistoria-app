@@ -11,7 +11,7 @@ import { storage } from "./lib/storage";
 import CloudSyncWidget from "./components/CloudSyncWidget";
 import { enviarTodasFotosParaSupabase } from './uploadFotos.js';
 import { supabase } from './components/supabaseClient.js';
-
+import { uid, makeItem, makeAmbiente, fmtDate, fmtDateTime, emptyInspection } from './utils/helpers';
 // =====================================================================
 // 🛠️ FUNÇÕES AUXILIARES E CONSTANTES GLOBAIS
 // =====================================================================
@@ -119,15 +119,11 @@ const PROPERTY_MODELS = {
 // 🧰 CRIAÇÃO DE OBJETOS E FUNÇÕES UTILITÁRIAS
 // =====================================================================
 
-const uid = () => Math.random().toString(36).slice(2, 10);
 
-function makeItem(nome) {
-  return { id: uid(), nome, estado: "Bom", semTeste: false, observacoes: "", temDano: false, descricaoDano: "", fotos: [], campos: Object.fromEntries(ITEM_FIELD_DEFS.map((f) => [f.key, ""])) };
-}
 
-function makeAmbiente(nome, itensNomes = []) {
-  return { id: uid(), nome, fotos: [], itens: itensNomes.map(makeItem) };
-}
+
+
+
 
 function ambientesFromModel(modelKeyOrObj) {
   const model = typeof modelKeyOrObj === "string" ? PROPERTY_MODELS[modelKeyOrObj] : modelKeyOrObj;
@@ -211,17 +207,7 @@ function normalizePhoto(p) {
   return { type: "image", marcas: [], ...p };
 }
 
-function fmtDateTime(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d)) return "";
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yy = d.getFullYear();
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${dd}/${mm}/${yy} ${hh}:${mi}`;
-}
+
 
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
@@ -241,11 +227,7 @@ function qrCodeUrl(text, size = 220) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`;
 }
 
-function fmtDate(iso) {
-  if (!iso) return "—";
-  const [y, m, d] = iso.split("-");
-  return `${d}/${m}/${y}`;
-}
+
 
 function emptyMedidor(opcional = false, unidadePadrao = "") {
   return { ativo: !opcional, numero: "", leitura: "", unidade: unidadePadrao, concessionaria: "", marca: "", observacoes: "", fotos: [] };
@@ -253,18 +235,7 @@ function emptyMedidor(opcional = false, unidadePadrao = "") {
 
 function emptyChave() { return { quantidade: "", observacoes: "", fotos: [] }; }
 
-function emptyInspection() {
-  return {
-    id: uid(), tipo: "Entrada", dataVistoria: todayISO(), vistoriador: "",
-    imovel: { cep: "", endereco: "", numero: "", bairro: "", cidade: "", estado: "", complemento: "", metragem: "", proprietario: "", inquilino: "", tipoImovel: "Apartamento" },
-    mobiliario: "Vazio", status: "Em andamento", capaFoto: null, ambientes: [],
-    medidores: { agua: emptyMedidor(false, "m³"), energia: emptyMedidor(false, "kWh"), gas: emptyMedidor(true, "m³") },
-    chaves: { entrada: emptyChave(), garagem: emptyChave(), controle: emptyChave(), tags: emptyChave(), outras: [] },
-    signatures: { vistoriador: null, locador: null, locatario: null },
-    parecerTecnico: { texto: "", anexos: [] },
-    createdAt: Date.now(),
-  };
-}
+
 
 // =====================================================================
 // 💾 PERSISTÊNCIA DE DADOS
