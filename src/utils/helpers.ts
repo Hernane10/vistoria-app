@@ -69,3 +69,48 @@ export function emptyInspection(): Inspecao {
     createdAt: Date.now(),
   };
 }
+// @ts-nocheck
+
+// Funções utilitárias para mídia
+export function mediaTypeOf(file: any) {
+  if (file.type.startsWith("video/")) return "video";
+  if (file.type.startsWith("audio/")) return "audio";
+  return "image";
+}
+
+export function normalizePhoto(p: any) {
+  if (typeof p === "string") return { src: p, date: null, type: "image", marcas: [] };
+  return { type: "image", marcas: [], ...p };
+}
+
+export function fmtFileSize(bytes: any) {
+  if (!bytes && bytes !== 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Export e Import de dados
+export async function storageLoadAll() {
+  try {
+    const idxRes = await storage.get(STORAGE_INDEX_KEY);
+    const ids = idxRes ? JSON.parse(idxRes.value) : [];
+    const results = await Promise.all(ids.map(async (id: any) => {
+      try { const r = await storage.get(inspKey(id)); return r ? JSON.parse(r.value) : null; } catch { return null; }
+    }));
+    return results.filter(Boolean).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  } catch { return []; }
+}
+
+export async function storageSaveInspection(insp: any) {
+  await storage.set(inspKey(insp.id), JSON.stringify(insp));
+}
+
+export async function storageSaveIndex(ids: any) {
+  await storage.set(STORAGE_INDEX_KEY, JSON.stringify(ids));
+}
+
+export async function storageDeleteInspection(id: any, remainingIds: any) {
+  await storage.delete(inspKey(id)).catch(() => {});
+  await storageSaveIndex(remainingIds);
+}
