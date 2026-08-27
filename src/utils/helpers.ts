@@ -1,5 +1,6 @@
 // src/utils/helpers.ts
 import { Inspecao, ItemVistoria, Ambiente } from '../types/vistoria';
+import { storage } from '../lib/storage';
 
 // Funções utilitárias tipadas
 export const uid = (): string => Math.random().toString(36).slice(2, 10);
@@ -69,7 +70,6 @@ export function emptyInspection(): Inspecao {
     createdAt: Date.now(),
   };
 }
-// @ts-nocheck
 
 // Funções utilitárias para mídia
 export function mediaTypeOf(file: any) {

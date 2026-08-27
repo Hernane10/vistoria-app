@@ -12,7 +12,7 @@ import CloudSyncWidget from "./components/CloudSyncWidget";
 import { enviarTodasFotosParaSupabase } from './uploadFotos.js';
 import { supabase } from './components/supabaseClient.js';
 import { uid, makeItem, makeAmbiente, fmtDate, fmtDateTime, emptyInspection } from './utils/helpers';
-// @ts-nocheck
+
 // =====================================================================
 // 🛠️ FUNÇÕES AUXILIARES E CONSTANTES GLOBAIS
 // =====================================================================
@@ -2531,7 +2531,7 @@ function ItemRow({ item, locked, onChange, onRemove }) {
 // =====================================================================
 // 💧 MEDIDORES E CHAVES
 // =====================================================================
-{/* @ts-ignore */}
+
 function MedidorCard({ icon, title, data, locked, opcional, unidades, onChange }) {
   const ativo = data.ativo;
 
