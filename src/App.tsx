@@ -12,7 +12,7 @@ import CloudSyncWidget from "./components/CloudSyncWidget";
 import { enviarTodasFotosParaSupabase } from './uploadFotos.js';
 import { supabase } from './components/supabaseClient.js';
 import { uid, makeItem, makeAmbiente, fmtDate, fmtDateTime, emptyInspection } from './utils/helpers';
-
+import { withDefaults } from './utils/helpers';
 // =====================================================================
 // 🛠️ FUNÇÕES AUXILIARES E CONSTANTES GLOBAIS
 // =====================================================================
@@ -257,36 +257,6 @@ async function storageLoadAll() {
 async function storageSaveInspection(insp) { await storage.set(inspKey(insp.id), JSON.stringify(insp)); }
 async function storageSaveIndex(ids) { await storage.set(STORAGE_INDEX_KEY, JSON.stringify(ids)); }
 async function storageDeleteInspection(id, remainingIds) { await storage.delete(inspKey(id)).catch(() => {}); await storageSaveIndex(remainingIds); }
-
-// Merge older saved inspections with new defaults
-function withDefaults(insp) {
-  const base = emptyInspection();
-  const oldSig = insp.signatures || {};
-  return {
-    ...base, ...insp,
-    imovel: { ...base.imovel, ...(insp.imovel || {}) },
-    mobiliario: insp.mobiliario || base.mobiliario,
-    ambientes: (insp.ambientes || []).map((amb) => ({ ...amb, fotos: (amb.fotos || []).map(normalizePhoto), itens: (amb.itens || []).map((it) => ({ ...it, fotos: (it.fotos || []).map(normalizePhoto) })) })),
-    medidores: {
-      agua: { ...base.medidores.agua, ...(insp.medidores?.agua || {}), fotos: (insp.medidores?.agua?.fotos || []).map(normalizePhoto) },
-      energia: { ...base.medidores.energia, ...(insp.medidores?.energia || {}), fotos: (insp.medidores?.energia?.fotos || []).map(normalizePhoto) },
-      gas: { ...base.medidores.gas, ...(insp.medidores?.gas || {}), fotos: (insp.medidores?.gas?.fotos || []).map(normalizePhoto) },
-    },
-    chaves: {
-      entrada: { ...base.chaves.entrada, ...(insp.chaves?.entrada || {}), fotos: (insp.chaves?.entrada?.fotos || []).map(normalizePhoto) },
-      garagem: { ...base.chaves.garagem, ...(insp.chaves?.garagem || {}), fotos: (insp.chaves?.garagem?.fotos || []).map(normalizePhoto) },
-      controle: { ...base.chaves.controle, ...(insp.chaves?.controle || {}), fotos: (insp.chaves?.controle?.fotos || []).map(normalizePhoto) },
-      tags: { ...base.chaves.tags, ...(insp.chaves?.tags || {}), fotos: (insp.chaves?.tags?.fotos || []).map(normalizePhoto) },
-      outras: (insp.chaves?.outras || []).map((o) => ({ ...o, fotos: (o.fotos || []).map(normalizePhoto) })),
-    },
-    signatures: {
-      vistoriador: oldSig.vistoriador ?? null,
-      locador: oldSig.locador ?? null,
-      locatario: oldSig.locatario ?? oldSig.responsavel ?? null,
-    },
-    parecerTecnico: { texto: insp.parecerTecnico?.texto || "", anexos: insp.parecerTecnico?.anexos || [] },
-  };
-}
 
 function buildExampleInspection() {
   const ambientes = ambientesFromModel("Apartamento");

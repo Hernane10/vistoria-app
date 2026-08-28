@@ -1,7 +1,8 @@
 // src/utils/helpers.ts
 import { Inspecao, ItemVistoria, Ambiente } from '../types/vistoria';
 import { storage } from '../lib/storage';
-
+const STORAGE_INDEX_KEY = "insp-index";
+const inspKey = (id: string) => `insp:${id}`;
 // Funções utilitárias tipadas
 export const uid = (): string => Math.random().toString(36).slice(2, 10);
 
@@ -113,4 +114,33 @@ export async function storageSaveIndex(ids: any) {
 export async function storageDeleteInspection(id: any, remainingIds: any) {
   await storage.delete(inspKey(id)).catch(() => {});
   await storageSaveIndex(remainingIds);
+}
+
+export function withDefaults(insp) {
+  const base = emptyInspection();
+  const oldSig = insp.signatures || {};
+  return {
+    ...base, ...insp,
+    imovel: { ...base.imovel, ...(insp.imovel || {}) },
+    mobiliario: insp.mobiliario || base.mobiliario,
+    ambientes: (insp.ambientes || []).map((amb) => ({ ...amb, fotos: (amb.fotos || []).map(normalizePhoto), itens: (amb.itens || []).map((it) => ({ ...it, fotos: (it.fotos || []).map(normalizePhoto) })) })),
+    medidores: {
+      agua: { ...base.medidores.agua, ...(insp.medidores?.agua || {}), fotos: (insp.medidores?.agua?.fotos || []).map(normalizePhoto) },
+      energia: { ...base.medidores.energia, ...(insp.medidores?.energia || {}), fotos: (insp.medidores?.energia?.fotos || []).map(normalizePhoto) },
+      gas: { ...base.medidores.gas, ...(insp.medidores?.gas || {}), fotos: (insp.medidores?.gas?.fotos || []).map(normalizePhoto) },
+    },
+    chaves: {
+      entrada: { ...base.chaves.entrada, ...(insp.chaves?.entrada || {}), fotos: (insp.chaves?.entrada?.fotos || []).map(normalizePhoto) },
+      garagem: { ...base.chaves.garagem, ...(insp.chaves?.garagem || {}), fotos: (insp.chaves?.garagem?.fotos || []).map(normalizePhoto) },
+      controle: { ...base.chaves.controle, ...(insp.chaves?.controle || {}), fotos: (insp.chaves?.controle?.fotos || []).map(normalizePhoto) },
+      tags: { ...base.chaves.tags, ...(insp.chaves?.tags || {}), fotos: (insp.chaves?.tags?.fotos || []).map(normalizePhoto) },
+      outras: (insp.chaves?.outras || []).map((o) => ({ ...o, fotos: (o.fotos || []).map(normalizePhoto) })),
+    },
+    signatures: {
+      vistoriador: oldSig.vistoriador ?? null,
+      locador: oldSig.locador ?? null,
+      locatario: oldSig.locatario ?? oldSig.responsavel ?? null,
+    },
+    parecerTecnico: { texto: insp.parecerTecnico?.texto || "", anexos: insp.parecerTecnico?.anexos || [] },
+  };
 }
