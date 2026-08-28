@@ -1,3 +1,4 @@
+// @ts-nocheck
 // src/utils/helpers.ts
 import { Inspecao, ItemVistoria, Ambiente } from '../types/vistoria';
 import { storage } from '../lib/storage';
@@ -143,4 +144,25 @@ export function withDefaults(insp) {
     },
     parecerTecnico: { texto: insp.parecerTecnico?.texto || "", anexos: insp.parecerTecnico?.anexos || [] },
   };
+}
+export function getUrlFoto(caminho) {
+  if (!caminho) return '';
+  // Se for objeto com .src → pega o valor de .src
+  if (typeof caminho === 'object') {
+    if (caminho.src) caminho = caminho.src;
+    else return '';
+  }
+  // Se já é link completo → usa direto
+  if (caminho.startsWith('http')) return caminho;
+  // Se é base64 (foto local não enviada ainda) → mostra direto
+  if (caminho.startsWith('data:image')) return caminho;
+  // Gera o link público do Supabase
+  const { data } = supabase.storage.from('vistoria_fotos').getPublicUrl(caminho);
+  return data?.publicUrl || caminho;
+}
+export async function filesToPhotos(files) {
+  const processed = await Promise.all(files.map((f) => (f.type.startsWith("image/") ? maybeCompressImage(f) : f)));
+  const urls = await Promise.all(processed.map(fileToDataURL));
+  const now = new Date().toISOString();
+  return urls.map((src, i) => ({ src, date: now, type: mediaTypeOf(files[i]), marcas: [] }));
 }

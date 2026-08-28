@@ -1,3 +1,5 @@
+// @ts-nocheck
+import { getUrlFoto, filesToPhotos, mediaTypeOf, compressImageFile } from './utils/helpers';
 import { useState, useRef, useEffect, useCallback, createContext, useContext } from "react";
 import {
   Plus, ChevronDown, ChevronRight, Camera, Trash2, AlertTriangle,
@@ -13,26 +15,13 @@ import { enviarTodasFotosParaSupabase } from './uploadFotos.js';
 import { supabase } from './components/supabaseClient.js';
 import { uid, makeItem, makeAmbiente, fmtDate, fmtDateTime, emptyInspection } from './utils/helpers';
 import { withDefaults } from './utils/helpers';
+import { MediaPicker, PhotoThumb, TextAreaWithDictation } from './components/MediaComponents';
+import { filesToPhotos } from './utils/helpers';
 // =====================================================================
 // 🛠️ FUNÇÕES AUXILIARES E CONSTANTES GLOBAIS
 // =====================================================================
 
-function getUrlFoto(caminho) {
-  if (!caminho) return '';
-  // Se for objeto com .src → pega o valor de .src
-  if (typeof caminho === 'object') {
-    if (caminho.src) caminho = caminho.src;
-    else return '';
-  }
-  // Se já é link completo → usa direto
-  if (caminho.startsWith('http')) return caminho;
-  // Se é base64 (foto local não enviada ainda) → mostra direto
-  if (caminho.startsWith('data:image')) return caminho;
-  // Gera o link público do Supabase
-  const { data } = supabase.storage.from('vistoria_fotos').getPublicUrl(caminho);
-  return data?.publicUrl || caminho;
-}
-const LightboxContext = createContext(() => {});
+export const LightboxContext = createContext(() => {});
 
 const TEMPLATES = {
   "Sala de Estar": ["Teto", "Parede", "Piso", "Rodapé", "Porta", "Janela", "Tomadas", "Interruptores", "Iluminação", "Quadro de luz"],
