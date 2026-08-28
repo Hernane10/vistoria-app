@@ -1,11 +1,13 @@
 // @ts-nocheck
+import { HeaderCameraButton } from './components/UploadButton';
 import { getUrlFoto, filesToPhotos, mediaTypeOf, compressImageFile } from './utils/helpers';
 import { useState, useRef, useEffect, useCallback, createContext, useContext } from "react";
 import {
   Plus, ChevronDown, ChevronRight, Camera, Trash2, AlertTriangle,
   FileText, ArrowLeft, Search, Building2, Calendar, Printer,
   X, CheckCircle2, ClipboardList, Layers, MapPin, Lock, Unlock,
-  PenLine, RotateCcw, Cloud, CloudOff, Loader2, Gauge, KeyRound, Flame, Droplet, Zap, Info, EyeOff, Eye,
+  PenLine, RotateCcw, Cloud, CloudOff, Loader2, Gauge, KeyRound, 
+  Flame, Droplet, Zap, Info, EyeOff, Eye,
   Upload, ImagePlus, Wand2, Trash, Sun, Moon, Video, Play, HelpCircle, Mic,
   Pencil, Eraser, Share2, QrCode, GitCompare, Hash, Check, Target, Download
 } from "lucide-react";
@@ -1670,9 +1672,17 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button onClick={onExport} className="btn-ghost rounded-full p-2" title="Exportar esta vistoria (com fotos, vídeos e anexos)">
-            <Download size={16} />
-          </button>
+                    <button onClick={onExport} className="btn-ghost rounded-full p-2" title="Exportar esta vistoria (com fotos, vídeos e anexos)">
+                                <Download size={16} />
+                                             {/* NOVO BOTÃO DE FOTO NO TOPO */}
+                                               <HeaderCameraButton
+                                                   onUpload={async (files) => {
+                                                         const photos = await filesToPhotos(files);
+                                                               // Adiciona as fotos ao primeiro ambiente da lista (ou você pode escolher adicionar ao ambiente atual)
+                                                                     onUpdate((insp) => ({
+                                                                             ...insp,
+                                                                                     ambientes: insp.ambientes.map((amb, index) => 
+                                                                                               index === 0 ? { ...amb, fotos: [...amb.fotos,    locked={locked}
           <button onClick={() => setShowQr(true)} className="btn-ghost rounded-full p-2" title="QR do imóvel">
             <QrCode size={16} />
           </button>
@@ -1775,7 +1785,20 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
           <ReportView inspection={inspection} onUpdate={onUpdate} embedded />
         )}
       </div>
-    </div>
+<div className="flex items-center gap-2 shrink-0">
+  <button onClick={onExport} className="btn-ghost rounded-full p-2" title="Exportar esta vistoria">
+    <Download size={16} />
+  </button>
+  <button onClick={() => setShowQr(true)} className="btn-ghost rounded-full p-2" title="QR do imóvel">
+    <QrCode size={16} />
+  </button>
+
+
+  <button onClick={toggleStatus} className="btn-primary rounded-full px-3 py-2 text-xs flex items-center gap-1.5">
+    {locked ? <Unlock size={14} /> : <Lock size={14} />}
+    {locked ? "Reabrir" : "Finalizar"}
+  </button>
+</div>    </div>
   );
 }
 

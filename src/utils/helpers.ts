@@ -2,6 +2,7 @@
 // src/utils/helpers.ts
 import { Inspecao, ItemVistoria, Ambiente } from '../types/vistoria';
 import { storage } from '../lib/storage';
+import {uploadFileToSupabase } from "./supabaseUpload";
 const STORAGE_INDEX_KEY = "insp-index";
 const inspKey = (id: string) => `insp:${id}`;
 // Funções utilitárias tipadas
@@ -160,11 +161,26 @@ export function getUrlFoto(caminho) {
   const { data } = supabase.storage.from('vistoria_fotos').getPublicUrl(caminho);
   return data?.publicUrl || caminho;
 }
-export async function filesToPhotos(files) {
-  const processed = await Promise.all(files.map((f) => (f.type.startsWith("image/") ? maybeCompressImage(f) : f)));
-  const urls = await Promise.all(processed.map(fileToDataURL));
+
+// Substitua a função antiga por esta:
+async function filesToPhotos(files) {
   const now = new Date().toISOString();
-  return urls.map((src, i) => ({ src, date: now, type: mediaTypeOf(files[i]), marcas: [] }));
+  
+  const photos = await Promise.all(files.map(async (file) => {
+    let src = await fileToDataURL(file); // Fallback local (base64)
+    
+    // Tenta enviar para o Supabase
+    const publicUrl = await uploadFileToSupabase(file);
+    
+    // Se conseguiu enviar, usa o link público da nuvem
+    if (publicUrl) {
+      src = publicUrl;
+    }
+    
+    return { src, date: now, type: mediaTypeOf(file), marcas: [] };
+  }));
+  
+  return photos;
 }
 export function fichaText(inspection) {
   return ["Ficha rápida do imóvel — VistorIA", `Endereço: ${enderecoCompleto(inspection.imovel) || "—"}`, `Tipo: ${inspection.imovel.tipoImovel} (${inspection.mobiliario})`, inspection.imovel.metragem ? `Metragem: ${inspection.imovel.metragem}` : null, `Proprietário: ${inspection.imovel.proprietario || "—"}`, `Inquilino: ${inspection.imovel.inquilino || "—"}`, `Última vistoria: ${fmtDate(inspection.dataVistoria)} (${inspection.tipo})`, `Status: ${inspection.status}`].filter(Boolean).join("\n");
