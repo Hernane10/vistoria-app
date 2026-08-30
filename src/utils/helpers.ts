@@ -152,9 +152,9 @@ export function getUrlFoto(caminho) {
 export async function filesToPhotos(files) {
   const now = new Date().toISOString();
   const photos = await Promise.all(files.map(async (file) => {
-    let src = await fileToDataURL(file);
-    const publicUrl = await uploadFileToSupabase(file);
-    if (publicUrl) src = publicUrl;
+    let src = await fileToDataURL(file);// salva localmente
+    const publicUrl = await uploadFileToSupabase(file);// tenta subir pro supabase
+    if (publicUrl) src = publicUrl;// se subiu usa o link publico
     return { src, date: now, type: mediaTypeOf(file), marcas: [] };
   }));
   return photos;

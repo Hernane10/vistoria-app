@@ -4,7 +4,8 @@ import {
   Plus, ChevronDown, ChevronRight, Camera, Trash2, AlertTriangle,
   FileText, ArrowLeft, Search, Building2, Calendar, Printer,
   X, CheckCircle2, ClipboardList, Layers, MapPin, Lock, Unlock,
-  PenLine, RotateCcw, Cloud, CloudOff, Loader2, Gauge, KeyRound, Flame, Droplet, Zap, Info, EyeOff, Eye,
+  PenLine, RotateCcw, Cloud, CloudOff, Loader2, Gauge, KeyRound, Flame, Droplet,
+   Zap, Info, EyeOff, Eye,
   Upload, ImagePlus, Wand2, Trash, Sun, Moon, Video, Play, HelpCircle, Mic,
   Pencil, Eraser, Share2, QrCode, GitCompare, Hash, Check, Target, Download
 } from "lucide-react";
@@ -22,7 +23,7 @@ import { getUrlFoto, filesToPhotos, makeItem, makeAmbiente, fmtDate, uid, fmtDat
      compressImageFile, fileToDataURL, getImageDimensions } from './utils/helpers';
 
 
-export const LightboxContext = createContext(() => {});
+export const LightboxContext = createContext(() => {})
 
 // ============================================================
 // CONSTANTES E FUNÇÕES AUXILIARES
@@ -121,8 +122,9 @@ export default function App() {
   const [customModels, setCustomModels] = useState([]);
   const [agendamentos, setAgendamentos] = useState([]);
   const [lightboxSrc, setLightboxSrc] = useState(null);
+  const [lightboxMarcas, setLightboxMarcas] = useState (null);
   const [loaded, setLoaded] = useState(false);
-  const [saveState, setSaveState] = useState("idle");
+  const [saveState, setSaveState] = useState(null);
   const saveTimer = useRef(null);
 
   const current = inspections.find((i) => i.id === currentId) || null;
@@ -244,8 +246,8 @@ export default function App() {
 
   return (
     <div className={`app-root ${theme === "light" ? "theme-light" : ""}`}>
-      <LightboxContext.Provider value={setLightboxSrc}>
-      <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+      <LightboxContext.Provider value={(src) => { setLightboxSrc(src); setLightboxMarcas(null); }}>
+      <Lightbox src={lightboxSrc} marcas={lightboxMarcas} onClose={() => setLightboxSrc(null)} />
 
       {!loaded && (
         <div className="flex items-center justify-center py-24">
@@ -1194,19 +1196,36 @@ function AmbienteCard({ ambiente, numero, locked, onRemove, onChange }) {
   }
 
   const avariasAmb = ambiente.itens.filter((i) => i.temDano).length;
+  
+  // Calcula o total de mídias (fotos do ambiente + fotos dos itens)
+  const totalMidias = (ambiente.fotos?.length || 0) + ambiente.itens.reduce((acc, item) => acc + (item.fotos?.length || 0), 0);
+  
+  // Função para escolher cor e ícone com base no nome do ambiente
+  const getCor = (nome) => {
+    const n = (nome || "").toLowerCase();
+    if (n.includes("cozinha")) return { bg: "#5e1f1f", border: "#e66c6c", icon: <Flame size={18} color="#ff5c5c" /> };
+    if (n.includes("banheiro")) return { bg: "#1d3a5f", border: "#5c9ce6", icon: <Droplet size={18} color="#4da6ff" /> };
+    if (n.includes("quarto")) return { bg: "#2d4a32", border: "#6fbf73", icon: <Sun size={18} color="#7ed957" /> };
+    if (n.includes("sala")) return { bg: "#5e1f1f", border: "#e66c6c", icon: <MapPin size={18} color="#ff5c5c" /> };
+    return { bg: "#2d4a32", border: "#6fbf73", icon: <Camera size={18} color="#7ed957" /> };
+  };
+  
+  const cor = getCor(ambiente.nome);
 
   return (
     <div className="card overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 cursor-pointer" style={{ background: "var(--card-alt)" }} onClick={() => setOpen((v) => !v)}>
-        {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+        <div className="flex items-center justify-center rounded-xl" style={{ width: 36, height: 36, background: cor.bg, border: `1px solid ${cor.border}` }}>
+          {cor.icon}
+        </div>
         {numero && (
-          <span className="mono font-bold flex items-center justify-center rounded-full shrink-0" style={{ width: 22, height: 22, fontSize: 11, background: "var(--accent)", color: "#F3E4E7" }}>
+          <span className="mono font-bold flex items-center justify-center rounded-full" style={{ width: 22, height: 22, fontSize: 11, background: "var(--accent)", color: "#F3E4E7" }}>
             {String(numero).padStart(2, "0")}
           </span>
         )}
         <h3 className="display font-semibold text-sm flex-1">{ambiente.nome}</h3>
         <span className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{ambiente.itens.length} itens</span>
-        {fotosAmbiente.length > 0 && <span className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{fotosAmbiente.length} mídia(s)</span>}
+        <span className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{totalMidias} mídia(s)</span>
         {avariasAmb > 0 && <span className="badge badge-bad">{avariasAmb} avarias</span>}
         {!locked && <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="btn-ghost rounded-full p-1.5"><Trash2 size={13} /></button>}
       </div>
@@ -1281,13 +1300,19 @@ function ItemRow({ item, locked, onChange, onRemove }) {
 
       {open && (
         <div className="px-4 pb-4">
-          <div className="flex gap-2 flex-wrap mb-2">
-            {ESTADOS.map((e) => (
-              <button key={e} disabled={locked} onClick={() => onChange((it) => ({ ...it, estado: e, semTeste: false }))} className={`estado-btn px-4 py-2 ${!item.semTeste && item.estado === e ? `active-${e}` : ""}`}>
-                {e}
-              </button>
-            ))}
-          </div>
+<div className="flex items-center gap-1.5 mb-2 w-full overflow-x-auto" style={{ paddingBottom: "4px" }}>
+  {ESTADOS.map((e) => (
+    <button
+      key={e}
+      disabled={locked}
+      onClick={() => onChange((it) => ({ ...it, estado: e, semTeste: false }))}
+      className={`estado-btn px-3 py-2 text-xs flex-shrink-0 ${!item.semTeste && item.estado === e ? `active-${e}` : ""}`}
+      style={{ borderRadius: "999px", whiteSpace: "nowrap" }}
+    >
+      {e}
+    </button>
+  ))}
+</div>
           <div className="flex gap-2 flex-wrap mb-3">
             <button disabled={locked} onClick={() => onChange((it) => ({ ...it, semTeste: !it.semTeste }))} className={`estado-btn px-4 py-2 ${item.semTeste ? "active-semteste" : ""}`}>
               Sem teste
@@ -2261,3 +2286,49 @@ function compressImageFile(file, maxDim = 1200, quality = 0.8) {
   });
 }
 
+function Lightbox({ src, marcas = null, onClose }) {
+  if (!src) return null;
+  
+  const pontos = Array.isArray(marcas) ? marcas : (marcas?.points || []);
+  const comentarioMarcacao = Array.isArray(marcas) ? "" : (marcas?.comentario || "");
+
+  return (
+    <div
+      className="no-print"
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(10,11,16,0.92)", zIndex: 1000,
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 24, cursor: "zoom-out",
+      }}
+    >
+      <button
+        onClick={onClose}
+        style={{ position: "absolute", top: 18, right: 18, width: 36, height: 36, borderRadius: 999, background: "rgba(255,255,255,0.12)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
+      >
+        <X size={18} />
+      </button>
+      <div className="relative" style={{ maxWidth: "94vw", maxHeight: "90vh" }}>
+        <img
+          src={getUrlFoto(src)}
+          alt=""
+          style={{ maxWidth: "94vw", maxHeight: "90vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 8 }}
+          onClick={(e) => e.stopPropagation()}
+        />
+        {pontos.map((p, i) => (
+          <div
+            key={i}
+            style={{
+              position: "absolute", left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-50%)",
+              width: 26, height: 26, borderRadius: "50%", border: "3px solid #E23B3B",
+              background: "rgba(226,59,59,0.25)", display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 12, fontWeight: 700, color: "#fff", cursor: "pointer"
+            }}
+            title={comentarioMarcacao || undefined}
+          >
+            {i + 1}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

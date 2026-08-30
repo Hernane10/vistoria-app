@@ -254,7 +254,7 @@ export function PhotoThumb({ foto, size = 60, onRemove, onUpdate }) {
         alt=""
         loading="lazy"
         className="w-full h-full object-contain cursor-zoom-in"
-        onClick={() => openLightbox(getUrlFoto(foto.src))}
+        onClick={() => { setLightboxSrc(getUrlFoto(foto.src)); setLightboxMarcas(foto.marcas); }}
       />
       {pontos.map((p, i) => (
         <div
