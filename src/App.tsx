@@ -1667,22 +1667,24 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
             <ArrowLeft size={18} />
           </button>
           <div className="min-w-0">
-            <h1 className="display text-base font-bold truncate">{enderecoCompleto(inspection.imovel) || "Vistoria sem endereço"}</h1>
-            <p className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{inspection.tipo} · {fmtDate(inspection.dataVistoria)} · {inspection.vistoriador}</p>
-          </div>
-        </div>
         <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={onExport} className="btn-ghost rounded-full p-2" title="Exportar esta vistoria (com fotos, vídeos e anexos)">
-                                <Download size={16} />
-                                             {/* NOVO BOTÃO DE FOTO NO TOPO */}
-                                               <HeaderCameraButton
-                                                   onUpload={async (files) => {
-                                                         const photos = await filesToPhotos(files);
-                                                               // Adiciona as fotos ao primeiro ambiente da lista (ou você pode escolher adicionar ao ambiente atual)
-                                                                     onUpdate((insp) => ({
-                                                                             ...insp,
-                                                                                     ambientes: insp.ambientes.map((amb, index) => 
-                                                                                               index === 0 ? { ...amb, fotos: [...amb.fotos,    locked={locked}
+          <button onClick={onExport} className="btn-ghost rounded-full p-2" title="Exportar esta vistoria (com fotos, vídeos e anexos)">
+            <Download size={16} />
+          </button>
+          
+          <HeaderCameraButton
+            onUpload={async (files) => {
+              const photos = await filesToPhotos(files);
+              onUpdate((insp) => ({
+                ...insp,
+                ambientes: insp.ambientes.map((amb, index) => 
+                  index === 0 ? { ...amb, fotos: [...amb.fotos, ...photos] } : amb
+                ),
+              }));
+            }}
+            locked={locked}
+          />
+
           <button onClick={() => setShowQr(true)} className="btn-ghost rounded-full p-2" title="QR do imóvel">
             <QrCode size={16} />
           </button>
@@ -1691,7 +1693,28 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
             {locked ? "Reabrir" : "Finalizar"}
           </button>
         </div>
-      </div>
+          <HeaderCameraButton
+            onUpload={async (files) => {
+              const photos = await filesToPhotos(files);
+              onUpdate((insp) => ({
+                ...insp,
+                ambientes: insp.ambientes.map((amb, index) => 
+                  index === 0 ? { ...amb, fotos: [...amb.fotos, ...photos] } : amb
+                ),
+              }));
+            }}
+            locked={locked}
+          />
+
+          <button onClick={() => setShowQr(true)} className="btn-ghost rounded-full p-2" title="QR do imóvel">
+            <QrCode size={16} />
+          </button>
+          <button onClick={toggleStatus} className="btn-primary rounded-full px-3 py-2 text-xs flex items-center gap-1.5">
+            {locked ? <Unlock size={14} /> : <Lock size={14} />}
+            {locked ? "Reabrir" : "Finalizar"}
+          </button>
+        </div>
+        </div>
 
       {showQr && <QrCodeModal inspection={inspection} onClose={() => setShowQr(false)} />}
 
@@ -1798,10 +1821,11 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
     {locked ? <Unlock size={14} /> : <Lock size={14} />}
     {locked ? "Reabrir" : "Finalizar"}
   </button>
-</div>    </div>
+  </div>    
+</div>
+</div>
   );
 }
-
 // =====================================================================
 // ⚖️ COMPARAÇÃO ENTRE VISTORIAS
 // =====================================================================
@@ -3027,62 +3051,6 @@ function buildReportHTML(inspection, logo) {
 <meta charset="utf-8" />
 <title>Laudo de Vistoria — ${escapeHtml(enderecoCompleto(inspection.imovel) || "VistorIA")}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<style>
-  * { box-sizing: border-box; }
-  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; color: #2a1c20; margin: 0; padding: 24px; background: #f4efea; }
-  .toolbar { position: sticky; top: 0; background: #f4efea; padding: 10px 0 16px; display: flex; justify-content: flex-end; gap: 8px; z-index: 10; }
-  .toolbar button { background: #A23A4C; color: #fff; border: none; border-radius: 999px; padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(162,58,76,0.25); }
-  .wrap { max-width: 780px; margin: 0 auto; background: #fff; border-radius: 20px; padding: 32px; box-shadow: 0 8px 30px rgba(40,20,25,0.08); }
-
-  .eyebrow { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #93636d; margin: 0 0 4px; }
-
-  .section-card {
-    background: #fbf8f6; border: 1px solid #eee0da; border-radius: 16px;
-    padding: 18px 20px; margin-bottom: 18px; break-inside: avoid; page-break-inside: avoid;
-  }
-  .section-title {
-    display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700;
-    margin: 0 0 14px; padding-bottom: 10px; border-bottom: 2px solid #eee0da; color: #4e1b26;
-  }
-  .section-num {
-    display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
-    border-radius: 999px; background: #A23A4C; color: #fff; font-size: 11px; font-weight: 700;
-    font-family: 'JetBrains Mono', monospace; flex-shrink: 0;
-  }
-
-  .item-card {
-    background: #fff; border: 1px solid #f0e6e1; border-radius: 12px;
-    padding: 12px 14px; margin-bottom: 10px; break-inside: avoid; page-break-inside: avoid;
-  }
-  .item-card:last-child { margin-bottom: 0; }
-
-  .pill {
-    display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.03em; padding: 3px 10px; border-radius: 999px;
-  }
-
-  .meta-line { font-size: 12px; color: #7a5a60; margin: 4px 0; line-height: 1.5; }
-  .obs-line { font-size: 12.5px; color: #3a2a2e; margin: 6px 0; line-height: 1.5; }
-  .dano-line { font-size: 12.5px; color: #b23e2a; font-weight: 600; margin: 6px 0; line-height: 1.5; }
-
-  .media-grid { display: flex; gap: 10px; flex-wrap: wrap; }
-  .media-card {
-    width: 130px; border: 1px solid #eee0da; border-radius: 10px; overflow: hidden;
-    background: #fff; box-shadow: 0 2px 6px rgba(40,20,25,0.06); break-inside: avoid;
-  }
-
-  #photo-lightbox { display: none; position: fixed; inset: 0; background: rgba(10,11,16,0.92); z-index: 1000; align-items: center; justify-content: center; padding: 24px; cursor: zoom-out; }
-  #photo-lightbox.open { display: flex; }
-  #photo-lightbox img { max-width: 94vw; max-height: 90vh; object-fit: contain; border-radius: 8px; }
-  #photo-lightbox button { position: absolute; top: 18px; right: 18px; width: 36px; height: 36px; border-radius: 999px; background: rgba(255,255,255,0.15); color: #fff; border: none; font-size: 18px; cursor: pointer; }
-
-  @media print {
-    body { background: #fff; padding: 0; }
-    .toolbar { display: none; }
-    #photo-lightbox { display: none !important; }
-    .wrap { box-shadow: none; border-radius: 0; padding: 12px; max-width: 100%; }
-    .section-card { background: #fff; border: 1px solid #eee; }
-  }
 </style>
 </head>
 <body>
