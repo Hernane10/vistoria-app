@@ -1,14 +1,14 @@
 // @ts-nocheck
-// src/utils/helpers.ts
-import { Inspecao, ItemVistoria, Ambiente } from '../types/vistoria';
 import { storage } from '../lib/storage';
-import {uploadFileToSupabase } from "./supabaseUpload";
+import { supabase } from '../components/supabaseClient';
+import { uploadFileToSupabase } from "./supabaseUpload";
+
 const STORAGE_INDEX_KEY = "insp-index";
 const inspKey = (id: string) => `insp:${id}`;
-// Funções utilitárias tipadas
+
 export const uid = (): string => Math.random().toString(36).slice(2, 10);
 
-export function makeItem(nome: string): ItemVistoria {
+export function makeItem(nome: string) {
   return {
     id: uid(),
     nome,
@@ -22,25 +22,17 @@ export function makeItem(nome: string): ItemVistoria {
   };
 }
 
-export function makeAmbiente(nome: string, itensNomes: string[] = []): Ambiente {
+export function makeAmbiente(nome: string, itensNomes: string[] = []) {
   return { id: uid(), nome, fotos: [], itens: itensNomes.map(makeItem) };
 }
 
-export function enderecoCompleto(imovel: Inspecao['imovel']): string {
-  if (!imovel) return "";
-  const linha1 = [imovel.endereco, imovel.numero && `nº ${imovel.numero}`].filter(Boolean).join(", ");
-  const linha2 = [imovel.bairro, imovel.cidade, imovel.estado].filter(Boolean).join(" - ");
-  const comp = imovel.complemento ? ` (${imovel.complemento})` : "";
-  return [linha1, linha2].filter(Boolean).join(" - ") + comp;
-}
-
-export function fmtDate(iso: string): string {
+export function fmtDate(iso: string) {
   if (!iso) return "—";
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y}`;
 }
 
-export function fmtDateTime(iso: string | null): string {
+export function fmtDateTime(iso: string | null) {
   if (!iso) return "";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
@@ -52,7 +44,7 @@ export function fmtDateTime(iso: string | null): string {
   return `${dd}/${mm}/${yy} ${hh}:${mi}`;
 }
 
-export function emptyInspection(): Inspecao {
+export function emptyInspection() {
   return {
     id: uid(),
     tipo: "Entrada",
@@ -74,7 +66,6 @@ export function emptyInspection(): Inspecao {
   };
 }
 
-// Funções utilitárias para mídia
 export function mediaTypeOf(file: any) {
   if (file.type.startsWith("video/")) return "video";
   if (file.type.startsWith("audio/")) return "audio";
@@ -93,7 +84,6 @@ export function fmtFileSize(bytes: any) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Export e Import de dados
 export async function storageLoadAll() {
   try {
     const idxRes = await storage.get(STORAGE_INDEX_KEY);
@@ -146,42 +136,107 @@ export function withDefaults(insp) {
     parecerTecnico: { texto: insp.parecerTecnico?.texto || "", anexos: insp.parecerTecnico?.anexos || [] },
   };
 }
+
 export function getUrlFoto(caminho) {
   if (!caminho) return '';
-  // Se for objeto com .src → pega o valor de .src
   if (typeof caminho === 'object') {
     if (caminho.src) caminho = caminho.src;
     else return '';
   }
-  // Se já é link completo → usa direto
   if (caminho.startsWith('http')) return caminho;
-  // Se é base64 (foto local não enviada ainda) → mostra direto
   if (caminho.startsWith('data:image')) return caminho;
-  // Gera o link público do Supabase
   const { data } = supabase.storage.from('vistoria_fotos').getPublicUrl(caminho);
   return data?.publicUrl || caminho;
 }
 
-// Substitua a função antiga por esta:
-async function filesToPhotos(files) {
+export async function filesToPhotos(files) {
   const now = new Date().toISOString();
-  
   const photos = await Promise.all(files.map(async (file) => {
-    let src = await fileToDataURL(file); // Fallback local (base64)
-    
-    // Tenta enviar para o Supabase
+    let src = await fileToDataURL(file);
     const publicUrl = await uploadFileToSupabase(file);
-    
-    // Se conseguiu enviar, usa o link público da nuvem
-    if (publicUrl) {
-      src = publicUrl;
-    }
-    
+    if (publicUrl) src = publicUrl;
     return { src, date: now, type: mediaTypeOf(file), marcas: [] };
   }));
-  
   return photos;
 }
+
 export function fichaText(inspection) {
   return ["Ficha rápida do imóvel — VistorIA", `Endereço: ${enderecoCompleto(inspection.imovel) || "—"}`, `Tipo: ${inspection.imovel.tipoImovel} (${inspection.mobiliario})`, inspection.imovel.metragem ? `Metragem: ${inspection.imovel.metragem}` : null, `Proprietário: ${inspection.imovel.proprietario || "—"}`, `Inquilino: ${inspection.imovel.inquilino || "—"}`, `Última vistoria: ${fmtDate(inspection.dataVistoria)} (${inspection.tipo})`, `Status: ${inspection.status}`].filter(Boolean).join("\n");
+}
+
+export function ambientesFromModel(modelKeyOrObj) {
+  const model = typeof modelKeyOrObj === "string" ? PROPERTY_MODELS[modelKeyOrObj] : modelKeyOrObj;
+  if (!model || !model.ambientes) return [];
+  return Object.entries(model.ambientes).map(([nome, itens]) => makeAmbiente(nome, itens));
+}
+
+export function enderecoCompleto(imovel) {
+  if (!imovel) return "";
+  const linha1 = [imovel.endereco, imovel.numero && `nº ${imovel.numero}`].filter(Boolean).join(", ");
+  const linha2 = [imovel.bairro, imovel.cidade, imovel.estado].filter(Boolean).join(" - ");
+  const comp = imovel.complemento ? ` (${imovel.complemento})` : "";
+  return [linha1, linha2].filter(Boolean).join(" - ") + comp;
+}
+
+function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+function compressImageFile(file, maxDim = 1200, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.max(1, Math.round(img.naturalWidth * scale));
+      const h = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob((blob) => {
+        if (!blob) { reject(new Error("Falha ao comprimir imagem.")); return; }
+        resolve(new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }));
+      }, "image/jpeg", quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Não foi possível ler a imagem.")); };
+    img.src = url;
+  });
+}
+
+async function maybeCompressImage(file) {
+  if (!file.type.startsWith("image/") || file.type === "image/gif") return file;
+  try {
+    const { width, height } = await getImageDimensions(file);
+    const alreadySmallDim = Math.max(width, height) <= 1200;
+    const alreadySmallFile = file.size <= 250 * 1024;
+    const compressed = await compressImageFile(file);
+    return compressed.size < file.size ? compressed : file;
+  } catch {
+    return file;
+  }
+}
+
+function getImageDimensions(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Não foi possível ler a imagem.")); };
+    img.src = url;
+  });
+}
+
+export function todayISO() {
+  return new Date().toISOString().slice(0, 10);
 }

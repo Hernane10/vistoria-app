@@ -26,42 +26,43 @@ export function MediaPicker({ onAdd, multiple = true, small = false }) {
     await onAdd([file]);
   }
 
+  // Estilo dos cartões (agora em linha única)
   const cardStyle = {
-    width: small ? 110 : 140,
-    height: small ? 110 : 140,
-    borderRadius: "16px",
+    width: "24%",           // Usa apenas 24% da largura da tela para caber 4 em linha
+    height: 80,             // Altura menor (para caber tudo na tela)
+    borderRadius: "12px",
     border: "1.5px solid var(--line)",
     background: "var(--card-alt)",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    gap: "12px",
+    gap: "6px",
     cursor: "pointer",
     transition: "all 0.2s ease",
-    padding: "10px",
+    padding: "6px",
   };
 
   const iconBoxStyle = {
-    width: 48,
-    height: 48,
-    borderRadius: "12px",
+    width: 36,
+    height: 36,
+    borderRadius: "10px",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
   };
 
   const labelStyle = {
-    fontSize: "12px",
+    fontSize: "8.5px",
     fontWeight: "700",
     textAlign: "center",
-    lineHeight: "1.2",
+    lineHeight: "1",
     color: "var(--ink-strong)",
   };
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center justify-between gap-1">
         
         {/* 1. Tirar foto (Verde) */}
         <button type="button" onClick={() => cameraRef.current?.click()} style={cardStyle}>

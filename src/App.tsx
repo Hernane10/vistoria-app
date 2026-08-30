@@ -1,13 +1,10 @@
 // @ts-nocheck
-import { HeaderCameraButton } from './components/UploadButton';
-import { getUrlFoto, filesToPhotos, mediaTypeOf, compressImageFile } from './utils/helpers';
 import { useState, useRef, useEffect, useCallback, createContext, useContext } from "react";
 import {
   Plus, ChevronDown, ChevronRight, Camera, Trash2, AlertTriangle,
   FileText, ArrowLeft, Search, Building2, Calendar, Printer,
   X, CheckCircle2, ClipboardList, Layers, MapPin, Lock, Unlock,
-  PenLine, RotateCcw, Cloud, CloudOff, Loader2, Gauge, KeyRound, 
-  Flame, Droplet, Zap, Info, EyeOff, Eye,
+  PenLine, RotateCcw, Cloud, CloudOff, Loader2, Gauge, KeyRound, Flame, Droplet, Zap, Info, EyeOff, Eye,
   Upload, ImagePlus, Wand2, Trash, Sun, Moon, Video, Play, HelpCircle, Mic,
   Pencil, Eraser, Share2, QrCode, GitCompare, Hash, Check, Target, Download
 } from "lucide-react";
@@ -15,16 +12,21 @@ import { storage } from "./lib/storage";
 import CloudSyncWidget from "./components/CloudSyncWidget";
 import { enviarTodasFotosParaSupabase } from './uploadFotos.js';
 import { supabase } from './components/supabaseClient.js';
-import { uid, makeItem, makeAmbiente, fmtDate, fmtDateTime, emptyInspection } from './utils/helpers';
-import { withDefaults } from './utils/helpers';
-import { MediaPicker, PhotoThumb, TextAreaWithDictation } from './components/MediaComponents';
-import { filesToPhotos } from './utils/helpers';
+import { MediaPicker, PhotoPicker, PhotoThumb, TextAreaWithDictation, PhotoAnnotator } from './components/MediaComponents';
 import { PromptModal, Lightbox, QrCodeModal } from './components/Modals';
-// =====================================================================
-// 🛠️ FUNÇÕES AUXILIARES E CONSTANTES GLOBAIS
-// =====================================================================
+import { QuantityStepper, TechFieldPicker } from "./utils/ItemComponents";
+import { getUrlFoto, filesToPhotos, makeItem, makeAmbiente, fmtDate, uid, fmtDateTime,
+   emptyInspection, withDefaults, mediaTypeOf, normalizePhoto, fmtFileSize,
+   storageLoadAll, storageSaveInspection, storageSaveIndex, storageDeleteInspection,
+    enderecoCompleto, fichaText, ambientesFromModel, todayISO,
+     compressImageFile, fileToDataURL, getImageDimensions } from './utils/helpers';
+
 
 export const LightboxContext = createContext(() => {});
+
+// ============================================================
+// CONSTANTES E FUNÇÕES AUXILIARES
+// ============================================================
 
 const TEMPLATES = {
   "Sala de Estar": ["Teto", "Parede", "Piso", "Rodapé", "Porta", "Janela", "Tomadas", "Interruptores", "Iluminação", "Quadro de luz"],
@@ -53,7 +55,6 @@ const ITEM_FIELD_DEFS = [
   { key: "quantidade", label: "Quantidade", type: "number" },
 ];
 
-// Pre-filled suggestion lists per technical field
 const FIELD_OPTIONS = {
   alvenaria: ["Tijolo aparente", "Reboco liso", "Reboco áspero", "Drywall (gesso acartonado)", "Bloco de concreto", "Alvenaria estrutural", "Não se aplica"],
   revestimento: ["Cerâmica", "Porcelanato", "Azulejo", "Pastilha", "Textura", "Papel de parede", "Laminado", "Granito", "Mármore", "Não se aplica"],
@@ -65,7 +66,6 @@ const FIELD_OPTIONS = {
   cor: ["Branco", "Bege", "Cinza", "Preto", "Amarelo", "Azul", "Verde", "Vermelho", "Marrom", "Rosa", "Roxo", "Multicolor"],
 };
 
-// Which technical fields actually make sense for a given item
 const FIELD_RULES = [
   { keywords: ["piso", "parede", "teto", "rodapé", "rodape", "alvenaria", "estrutura", "muro", "cobertura"], fields: ["alvenaria", "revestimento", "acabamento", "pintura", "cor"] },
   { keywords: ["sanca"], fields: ["sanca", "acabamento", "pintura", "cor"] },
@@ -79,6 +79,7 @@ const FIELD_RULES = [
   { keywords: ["espelho", "ventilação", "ventilacao"], fields: ["material", "acabamento", "funcionamento"] },
   { keywords: ["ponto de"], fields: ["funcionamento", "quantidade"] },
 ];
+
 const DEFAULT_ITEM_FIELDS = ["material", "acabamento", "cor", "funcionamento", "marca", "quantidade"];
 
 function relevantFieldKeys(itemName) {
@@ -96,10 +97,6 @@ const CHAVE_TIPOS = [
   { key: "tags", label: "Tags" },
 ];
 
-// =====================================================================
-// 🏠 MODELOS DE IMÓVEIS
-// =====================================================================
-
 const PROPERTY_MODELS = {
   Kitnet: { label: "Kitnet", descricao: "Ambiente integrado, ideal para vistorias rápidas de imóveis compactos.", ambientes: { "Ambiente Integrado (Sala/Quarto)": ["Teto", "Parede", "Piso", "Rodapé", "Porta", "Janela", "Tomadas", "Iluminação", "Armário embutido"], "Cozinha": TEMPLATES["Cozinha"], "Banheiro": TEMPLATES["Banheiro"] } },
   Casa: { label: "Casa", descricao: "Modelo completo com área externa, ideal para casas térreas ou sobrados.", ambientes: { "Sala de Estar": TEMPLATES["Sala de Estar"], "Cozinha": TEMPLATES["Cozinha"], "Quarto 1": TEMPLATES["Quarto"], "Quarto 2": TEMPLATES["Quarto"], "Banheiro": TEMPLATES["Banheiro"], "Lavabo": TEMPLATES["Lavabo"], "Área de Serviço": TEMPLATES["Área de Serviço"], "Corredor/Hall": TEMPLATES["Corredor/Hall"], "Área Externa": TEMPLATES["Área Externa"] } },
@@ -108,411 +105,9 @@ const PROPERTY_MODELS = {
   "Checklist Completo": { label: "Checklist Completo", descricao: "Roteiro amplo com os itens mais cobrados em vistorias.", ambientes: { "Estrutura Geral": ["Paredes (rachaduras/trincas)", "Pintura", "Piso", "Rodapé", "Teto (infiltração/mofo)", "Portas", "Fechaduras e trincos", "Dobradiças", "Janelas", "Vidros", "Iluminação", "Tomadas", "Interruptores", "Quadro de luz"], "Cozinha": ["Pia (vazamentos)", "Torneiras", "Escoamento/ralo", "Gabinete e armários", "Azulejo", "Exaustor/Coifa", "Ponto de gás", "Tomadas", "Piso (impermeabilização)"], "Banheiro": ["Vaso sanitário (descarga)", "Vedação da base do vaso", "Box (vidro/trilho)", "Chuveiro e registro", "Pia/bancada", "Ralos", "Espelho", "Ventilação", "Azulejos"], "Quartos": ["Armário embutido", "Portas", "Janelas (vedação)", "Piso (nivelamento/ruído)"], "Área de Serviço": ["Tanque", "Torneira do tanque", "Ponto para máquina de lavar", "Ralo/esgoto"], "Área Externa / Garagem": ["Portão", "Controle do portão", "Piso da garagem", "Muros", "Jardim/quintal"], "Medidores e Instalações": ["Medidor de água (leitura)", "Medidor de energia (leitura)", "Medidor de gás", "Registro geral de água"], "Chaves e Acessos": ["Chaves de entrada", "Chaves da garagem", "Controles", "Tags/cartões de acesso"], "Segurança": ["Extintores (validade)", "Detectores de fumaça", "Grades e proteções de janelas"] } },
 };
 
-// =====================================================================
-// 🧰 CRIAÇÃO DE OBJETOS E FUNÇÕES UTILITÁRIAS
-// =====================================================================
-
-
-
-
-
-
-
-function ambientesFromModel(modelKeyOrObj) {
-  const model = typeof modelKeyOrObj === "string" ? PROPERTY_MODELS[modelKeyOrObj] : modelKeyOrObj;
-  if (!model || !model.ambientes) return [];
-  return Object.entries(model.ambientes).map(([nome, itens]) => makeAmbiente(nome, itens));
-}
-
-function fileToDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = reject;
-    r.readAsDataURL(file);
-  });
-}
-
-function mediaTypeOf(file) {
-  if (file.type.startsWith("video/")) return "video";
-  if (file.type.startsWith("audio/")) return "audio";
-  return "image";
-}
-
-function getImageDimensions(file) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => { URL.revokeObjectURL(url); resolve({ width: img.naturalWidth, height: img.naturalHeight }); };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Não foi possível ler a imagem.")); };
-    img.src = url;
-  });
-}
-
-// Resizes to at most 1200px on the longest side and re-encodes as JPEG at 80% quality
-function compressImageFile(file, maxDim = 1200, quality = 0.8) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
-      const w = Math.max(1, Math.round(img.naturalWidth * scale));
-      const h = Math.max(1, Math.round(img.naturalHeight * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0, w, h);
-      canvas.toBlob((blob) => {
-          if (!blob) { reject(new Error("Falha ao comprimir imagem.")); return; }
-          resolve(new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }));
-        }, "image/jpeg", quality);
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Não foi possível ler a imagem.")); };
-    img.src = url;
-  });
-}
-
-// Decides whether an image is worth compressing.
-async function maybeCompressImage(file) {
-  if (!file.type.startsWith("image/") || file.type === "image/gif") return file;
-  try {
-    const { width, height } = await getImageDimensions(file);
-    const alreadySmallDim = Math.max(width, height) <= 1200;
-    const alreadySmallFile = file.size <= 250 * 1024;
-    const compressed = await compressImageFile(file);
-    return compressed.size < file.size ? compressed : file;
-  } catch {
-    return file;
-  }
-}
-
-async function filesToPhotos(files) {
-  const processed = await Promise.all(files.map((f) => (f.type.startsWith("image/") ? maybeCompressImage(f) : f)));
-  const urls = await Promise.all(processed.map(fileToDataURL));
-  const now = new Date().toISOString();
-  return urls.map((src, i) => ({ src, date: now, type: mediaTypeOf(files[i]), marcas: [] }));
-}
-
-function normalizePhoto(p) {
-  if (typeof p === "string") return { src: p, date: null, type: "image", marcas: [] };
-  return { type: "image", marcas: [], ...p };
-}
-
-
-
-function todayISO() { return new Date().toISOString().slice(0, 10); }
-
-function enderecoCompleto(imovel) {
-  if (!imovel) return "";
-  const linha1 = [imovel.endereco, imovel.numero && `nº ${imovel.numero}`].filter(Boolean).join(", ");
-  const linha2 = [imovel.bairro, imovel.cidade, imovel.estado].filter(Boolean).join(" - ");
-  const comp = imovel.complemento ? ` (${imovel.complemento})` : "";
-  return [linha1, linha2].filter(Boolean).join(" - ") + comp;
-}
-
-
-
-function emptyMedidor(opcional = false, unidadePadrao = "") {
-  return { ativo: !opcional, numero: "", leitura: "", unidade: unidadePadrao, concessionaria: "", marca: "", observacoes: "", fotos: [] };
-}
-
-function emptyChave() { return { quantidade: "", observacoes: "", fotos: [] }; }
-
-
-
-// =====================================================================
-// 💾 PERSISTÊNCIA DE DADOS
-// =====================================================================
-
-const STORAGE_INDEX_KEY = "insp-index";
-const inspKey = (id) => `insp:${id}`;
-
-async function storageLoadAll() {
-  try {
-    const idxRes = await storage.get(STORAGE_INDEX_KEY);
-    const ids = idxRes ? JSON.parse(idxRes.value) : [];
-    const results = await Promise.all(ids.map(async (id) => { try { const r = await storage.get(inspKey(id)); return r ? JSON.parse(r.value) : null; } catch { return null; } }));
-    return results.filter(Boolean).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  } catch { return []; }
-}
-
-async function storageSaveInspection(insp) { await storage.set(inspKey(insp.id), JSON.stringify(insp)); }
-async function storageSaveIndex(ids) { await storage.set(STORAGE_INDEX_KEY, JSON.stringify(ids)); }
-async function storageDeleteInspection(id, remainingIds) { await storage.delete(inspKey(id)).catch(() => {}); await storageSaveIndex(remainingIds); }
-
-function buildExampleInspection() {
-  const ambientes = ambientesFromModel("Apartamento");
-  const cozinha = ambientes.find((a) => a.nome === "Cozinha");
-  if (cozinha) {
-    const pia = cozinha.itens.find((i) => i.nome === "Pia");
-    if (pia) { pia.estado = "Regular"; pia.temDano = true; pia.descricaoDano = "Pequeno vazamento identificado no sifão."; pia.observacoes = "Recomenda-se reparo antes da próxima vistoria."; }
-  }
-  const sala = ambientes.find((a) => a.nome === "Sala de Estar");
-  if (sala) { const piso = sala.itens.find((i) => i.nome === "Piso"); if (piso) piso.observacoes = "Piso laminado em bom estado, sem riscos aparentes."; }
-  return {
-    tipo: "Entrada", dataVistoria: todayISO(), vistoriador: "Vistoriador Exemplo", mobiliario: "Mobiliado", capaFoto: null, ambientes,
-    imovel: { cep: "01310-100", endereco: "Avenida Paulista", numero: "1000", bairro: "Bela Vista", cidade: "São Paulo", estado: "SP", complemento: "Apto 52", metragem: "68 m²", proprietario: "Maria Souza", inquilino: "João Pereira", tipoImovel: "Apartamento" },
-    medidores: {
-      agua: { ativo: true, numero: "883421", leitura: "1245", unidade: "m³", concessionaria: "Sabesp", observacoes: "Leitura registrada no início da vistoria.", fotos: [] },
-      energia: { ativo: true, numero: "55219087", leitura: "08234", unidade: "kWh", concessionaria: "Enel", observacoes: "", fotos: [] },
-      gas: { ativo: false, numero: "", leitura: "", unidade: "", marca: "", observacoes: "", fotos: [] },
-    },
-    chaves: { entrada: { quantidade: "2", observacoes: "Chaves tetra" }, garagem: { quantidade: "1", observacoes: "" }, controle: { quantidade: "1", observacoes: "Controle do portão da garagem" }, tags: { quantidade: "2", observacoes: "Tags de acesso à portaria" }, outras: [] },
-  };
-}
-
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
-function fmtFileSize(bytes) {
-  if (!bytes && bytes !== 0) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-// =====================================================================
-// 📷 COMPONENTES DE MÍDIA E ANOTAÇÃO
-// =====================================================================
-
-function MediaPicker({ onAdd, multiple = true, small = false }) {
-  const cameraRef = useRef(null);
-  const galleryRef = useRef(null);
-  const videoRef = useRef(null);
-  const [recordingVideo, setRecordingVideo] = useState(false);
-  const [recError, setRecError] = useState("");
-
-  async function handlePick(e) {
-    const files = Array.from(e.target.files || []);
-    if (files.length) await onAdd(files);
-    e.target.value = "";
-  }
-  async function handleVideoRecorded(file) { setRecordingVideo(false); await onAdd([file]); }
-
-  const btnClass = small ? "btn-ghost rounded-xl flex flex-col items-center justify-center gap-0.5" : "btn-ghost rounded-2xl flex items-center justify-center gap-1.5 text-xs px-3 py-2.5";
-  const size = small ? { width: 60, height: 60 } : undefined;
-  const label = (txt) => (small ? <span className="text-[9px] text-center leading-tight">{txt}</span> : <span>{txt}</span>);
-
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-2 flex-wrap">
-        <button type="button" onClick={() => cameraRef.current?.click()} className={btnClass} style={size}><Camera size={small ? 16 : 14} />{label("Tirar foto")}</button>
-        <button type="button" onClick={() => galleryRef.current?.click()} className={btnClass} style={size}><Upload size={small ? 16 : 14} />{label("Enviar imagem")}</button>
-        <button type="button" onClick={() => { setRecError(""); setRecordingVideo(true); }} className={btnClass} style={size}><Video size={small ? 16 : 14} />{label("Gravar vídeo")}</button>
-        <button type="button" onClick={() => videoRef.current?.click()} className={btnClass} style={size}><Upload size={small ? 16 : 14} />{label("Enviar vídeo")}</button>
-      </div>
-      {recError && <p className="text-xs" style={{ color: "var(--bad)" }}>{recError}</p>}
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" multiple={multiple} className="hidden" onChange={handlePick} />
-      <input ref={galleryRef} type="file" accept="image/*" multiple={multiple} className="hidden" onChange={handlePick} />
-      <input ref={videoRef} type="file" accept="video/*" multiple={multiple} className="hidden" onChange={handlePick} />
-      {recordingVideo && <VideoRecorderModal onSave={handleVideoRecorded} onClose={() => setRecordingVideo(false)} onError={(msg) => { setRecordingVideo(false); setRecError(msg); }} />}
-    </div>
-  );
-}
-
-// Kept as an alias so existing call sites keep working.
-function PhotoPicker(props) { return <MediaPicker {...props} />; }
-
-// Live camera preview + record/stop
-function VideoRecorderModal({ onSave, onClose, onError }) {
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const recorderRef = useRef(null);
-  const chunksRef = useRef([]);
-  const [recording, setRecording] = useState(false);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true });
-        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
-        streamRef.current = stream;
-        if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play().catch(() => {}); }
-        setReady(true);
-      } catch { onError("Não foi possível acessar a câmera. Verifique as permissões do navegador."); }
-    })();
-    return () => { cancelled = true; streamRef.current?.getTracks().forEach((t) => t.stop()); };
-  }, []);
-
-  function startRecording() {
-    if (!streamRef.current) return;
-    const recorder = new MediaRecorder(streamRef.current);
-    chunksRef.current = [];
-    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-    recorder.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: "video/webm" });
-      const file = new File([blob], `video-${Date.now()}.webm`, { type: "video/webm" });
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      onSave(file);
-    };
-    recorder.start();
-    recorderRef.current = recorder;
-    setRecording(true);
-  }
-
-  function stopRecording() { recorderRef.current?.stop(); }
-
-  return (
-    <div className="no-print modal-fade" style={{ position: "fixed", inset: 0, background: "rgba(10,11,16,0.92)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <div className="card modal-pop p-4" style={{ maxWidth: 460, width: "100%" }}>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="display text-sm font-bold">Gravar vídeo</h3>
-          <button onClick={() => { streamRef.current?.getTracks().forEach((t) => t.stop()); onClose(); }} className="btn-ghost rounded-full p-1.5"><X size={14} /></button>
-        </div>
-        <div style={{ borderRadius: 10, overflow: "hidden", border: "1px solid var(--line)", background: "#000", position: "relative" }}>
-          <video ref={videoRef} muted playsInline style={{ width: "100%", display: "block", maxHeight: 320, objectFit: "cover" }} />
-          {recording && <span className="absolute top-2 left-2 flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-semibold" style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "#E23B3B" }} className="pulseRing" /> Gravando</span>}
-        </div>
-        <div className="flex justify-center gap-2 mt-3">
-          {!recording ? <button onClick={startRecording} disabled={!ready} className="btn-primary rounded-full px-5 py-2.5 text-sm flex items-center gap-2"><Video size={15} /> Iniciar gravação</button> : <button onClick={stopRecording} className="btn-primary rounded-full px-5 py-2.5 text-sm flex items-center gap-2" style={{ background: "var(--bad)" }}>Parar e salvar</button>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Lets the person tap on a photo to drop red markers
-function PhotoAnnotator({ src, marcas, onSave, onClose }) {
-  const marcasArray = Array.isArray(marcas) ? marcas : (marcas?.points || []);
-  const marcasComentario = Array.isArray(marcas) ? "" : (marcas?.comentario || "");
-  const [pontos, setPontos] = useState(marcasArray);
-  const [comentario, setComentario] = useState(marcasComentario);
-  const imgRef = useRef(null);
-
-  function handleClick(e) {
-    const rect = imgRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-    setPontos((prev) => [...prev, { x, y }]);
-  }
-  function undo() { setPontos((prev) => prev.slice(0, -1)); }
-  function save() { onSave({ points: pontos, comentario }); onClose(); }
-
-  return (
-    <div className="no-print" style={{ position: "fixed", inset: 0, background: "rgba(10,11,16,0.92)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <div className="card p-4" style={{ maxWidth: 520, width: "100%" }}>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="display text-sm font-bold">Marcar avaria na foto</h3>
-          <button onClick={onClose} className="btn-ghost rounded-full p-1.5"><X size={14} /></button>
-        </div>
-        <p className="text-xs mb-2" style={{ color: "var(--ink-soft)" }}>Toque na foto para marcar o ponto exato da avaria.</p>
-        <div className="relative" style={{ borderRadius: 10, overflow: "hidden", border: "1px solid var(--line)", cursor: "crosshair" }}>
-          <img ref={imgRef} src={getUrlFoto(src)} alt="" onClick={handleClick} style={{ width: "100%", height: "auto", maxHeight: 500, objectFit: "contain", display: "block", userSelect: "none" }} />
-          {pontos.map((p, i) => (
-            <div key={i} style={{ position: "absolute", left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-50%)", width: 22, height: 22, borderRadius: "50%", border: "2.5px solid #E23B3B", background: "rgba(226,59,59,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff" }}>{i + 1}</div>
-          ))}
-        </div>
-        <div className="mt-3">
-          <label className="label block mb-1.5">Comentário / observação da marcação</label>
-          <textarea className="textarea w-full px-4 py-2.5 text-sm" rows={2} placeholder="Descreva a avaria marcada..." value={comentario} onChange={(e) => setComentario(e.target.value)} />
-        </div>
-        <div className="flex items-center justify-between gap-2 mt-3">
-          <button onClick={undo} disabled={pontos.length === 0} className="btn-ghost rounded-full px-3 py-2 text-xs">Desfazer último</button>
-          <div className="flex gap-2"><button onClick={onClose} className="btn-ghost rounded-full px-3 py-2 text-xs">Cancelar</button><button onClick={save} className="btn-primary rounded-full px-4 py-2 text-xs">Salvar marcações</button></div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PhotoThumb({ foto, size = 60, onRemove, onUpdate }) {
-  const openLightbox = useContext(LightboxContext);
-  const [annotating, setAnnotating] = useState(false);
-  const type = foto.type || "image";
-  const marcas = foto.marcas || null;
-  const pontos = Array.isArray(marcas) ? marcas : (marcas?.points || []);
-  const comentarioMarcacao = Array.isArray(marcas) ? "" : (marcas?.comentario || "");
-
-  if (type === "video") {
-    return (
-      <div className="photo-thumb" style={{ width: size, height: size, background: "#000" }}>
-        <video src={foto.src} className="w-full h-full object-cover cursor-zoom-in" onClick={() => openLightbox(foto.src)} muted />
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><Play size={size > 70 ? 22 : 16} color="#fff" fill="#fff" style={{ opacity: 0.85 }} /></div>
-        {foto.date && <span className="photo-date">{fmtDateTime(foto.date).split(" ")[0]}</span>}
-        {onRemove && <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="absolute top-0.5 right-0.5 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 16, height: 16 }}><X size={10} /></button>}
-      </div>
-    );
-  }
-
-  if (type === "audio") {
-    return (
-      <div className="photo-thumb flex flex-col items-center justify-center gap-1 p-1" style={{ width: Math.max(size, 130), height: size, background: "var(--card-alt)" }}>
-        <audio src={foto.src} controls style={{ width: "100%", height: 28 }} />
-        {foto.date && <span className="text-[8px] mono" style={{ color: "var(--ink-soft)" }}>{fmtDateTime(foto.date)}</span>}
-        {onRemove && <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="absolute top-0.5 right-0.5 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 16, height: 16 }}><X size={10} /></button>}
-      </div>
-    );
-  }
-
-  return (
-    <div className="photo-thumb" style={{ width: size, height: size }}>
-      <img src={getUrlFoto(foto.src)} alt="" loading="lazy" className="w-full h-full object-contain cursor-zoom-in" onClick={() => openLightbox(getUrlFoto(foto.src))} />
-      {pontos.map((p, i) => (
-        <div key={i} title={comentarioMarcacao || undefined} style={{ position: "absolute", left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-50%)", width: 12, height: 12, borderRadius: "50%", border: "1.5px solid #E23B3B", background: "rgba(226,59,59,0.35)" }} />
-      ))}
-      {foto.date && <span className="photo-date">{fmtDateTime(foto.date).split(" ")[0]}</span>}
-      {onUpdate && <button onClick={(e) => { e.stopPropagation(); setAnnotating(true); }} className="absolute bottom-0.5 left-0.5 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 16, height: 16 }} title="Marcar avaria na foto"><Target size={10} /></button>}
-      {onRemove && <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="absolute top-0.5 right-0.5 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 16, height: 16 }}><X size={10} /></button>}
-      {annotating && <PhotoAnnotator src={foto.src} marcas={marcas} onSave={(novasMarcas) => onUpdate(novasMarcas)} onClose={() => setAnnotating(false)} />}
-    </div>
-  );
-}
-
-function TextAreaWithDictation({ value, onChange, placeholder, rows = 2, disabled, className = "", style }) {
-  const [listening, setListening] = useState(false);
-  const [unsupported, setUnsupported] = useState(false);
-  const recognitionRef = useRef(null);
-  const baseValueRef = useRef(value);
-
-  function toggleDictation() {
-    if (listening) { recognitionRef.current?.stop(); return; }
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) { setUnsupported(true); return; }
-    baseValueRef.current = value;
-    const rec = new SpeechRecognition();
-    rec.lang = "pt-BR";
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.onresult = (e) => {
-      let transcript = "";
-      for (let i = 0; i < e.results.length; i++) transcript += e.results[i][0].transcript;
-      const prefix = baseValueRef.current ? baseValueRef.current.trim() + " " : "";
-      onChange(prefix + transcript);
-    };
-    rec.onerror = () => setListening(false);
-    rec.onend = () => setListening(false);
-    rec.start();
-    recognitionRef.current = rec;
-    setListening(true);
-  }
-
-  return (
-    <div className="relative">
-      <textarea disabled={disabled} className={`textarea w-full text-sm ${className}`} style={{ paddingRight: 40, ...style }} rows={rows} placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
-      {!disabled && (
-        <button type="button" onClick={toggleDictation} title={listening ? "Parar ditado" : "Falar por áudio"} className="absolute rounded-full flex items-center justify-center no-print" style={{ top: 8, right: 8, width: 24, height: 24, background: listening ? "var(--bad)" : "var(--card-alt)", color: listening ? "#fff" : "var(--ink-soft)", border: "1px solid var(--line)" }}>
-          <Mic size={12} />
-        </button>
-      )}
-      {unsupported && <p className="text-xs mt-1" style={{ color: "var(--ink-soft)" }}>Ditado por voz não é suportado neste navegador.</p>}
-    </div>
-  );
-}
-
-// =====================================================================
-// 🔲 MODAIS E CÓDIGO QR
-// =====================================================================
-
-
-
-// =====================================================================
-// ⚙️ COMPONENTE PRINCIPAL (APP)
-// =====================================================================
+// ============================================================
+// EXPORT DEFAULT APP
+// ============================================================
 
 export default function App() {
   const [inspections, setInspections] = useState([]);
@@ -553,43 +148,23 @@ export default function App() {
   }
 
   async function saveCustomModel(model) {
-    setCustomModels((prev) => {
-      const next = [...prev, model];
-      storage.set("custom-models", JSON.stringify(next)).catch(() => {});
-      return next;
-    });
+    setCustomModels((prev) => { const next = [...prev, model]; storage.set("custom-models", JSON.stringify(next)).catch(() => {}); return next; });
   }
 
   async function deleteCustomModel(id) {
-    setCustomModels((prev) => {
-      const next = prev.filter((m) => m.id !== id);
-      storage.set("custom-models", JSON.stringify(next)).catch(() => {});
-      return next;
-    });
+    setCustomModels((prev) => { const next = prev.filter((m) => m.id !== id); storage.set("custom-models", JSON.stringify(next)).catch(() => {}); return next; });
   }
 
   function addAgendamento(date, titulo, observacao) {
-    setAgendamentos((prev) => {
-      const next = [...prev, { id: uid(), date, titulo, observacao }];
-      storage.set("agendamentos", JSON.stringify(next)).catch(() => {});
-      return next;
-    });
+    setAgendamentos((prev) => { const next = [...prev, { id: uid(), date, titulo, observacao }]; storage.set("agendamentos", JSON.stringify(next)).catch(() => {}); return next; });
   }
 
   function removeAgendamento(id) {
-    setAgendamentos((prev) => {
-      const next = prev.filter((a) => a.id !== id);
-      storage.set("agendamentos", JSON.stringify(next)).catch(() => {});
-      return next;
-    });
+    setAgendamentos((prev) => { const next = prev.filter((a) => a.id !== id); storage.set("agendamentos", JSON.stringify(next)).catch(() => {}); return next; });
   }
 
   function toggleCalendar() {
-    setCalendarVisible((v) => {
-      const next = !v;
-      storage.set("ui-show-calendar", JSON.stringify(next)).catch(() => {});
-      return next;
-    });
+    setCalendarVisible((v) => { const next = !v; storage.set("ui-show-calendar", JSON.stringify(next)).catch(() => {}); return next; });
   }
 
   const persist = useCallback((insp) => {
@@ -745,6 +320,10 @@ export default function App() {
   );
 }
 
+// ============================================================
+// FUNÇÕES E COMPONENTES (BLOCO 2)
+// ============================================================
+
 function SaveIndicator({ state }) {
   if (state === "idle") return null;
   const map = {
@@ -759,10 +338,6 @@ function SaveIndicator({ state }) {
     </span>
   );
 }
-
-// =====================================================================
-// 📅 CALENDÁRIO E AGENDAMENTOS
-// =====================================================================
 
 const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const DIAS_SEMANA = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -933,10 +508,6 @@ function AgendarModal({ date, onClose, onSave }) {
   );
 }
 
-// =====================================================================
-// 📋 LISTA PRINCIPAL DE VISTORIAS
-// =====================================================================
-
 function ListView({ inspections, allInspections, query, setQuery, dateFilter, setDateFilter, calendarVisible, toggleCalendar, onOpen, onNew, onUseModel, onGenerateExample, onDelete, saveState, customModels, onCreateCustomModel, onDeleteCustomModel, theme, toggleTheme, agendamentos, onAddAgendamento, onRemoveAgendamento, onExport, onImport }) {
   const [tab, setTab] = useState("vistorias");
   const [importing, setImporting] = useState(false);
@@ -949,14 +520,9 @@ function ListView({ inspections, allInspections, query, setQuery, dateFilter, se
     if (!file) return;
     setImporting(true);
     setImportMsg("");
-    try {
-      const count = await onImport(file);
-      setImportMsg(`${count} vistoria(s) importada(s) com sucesso.`);
-    } catch (err) {
-      setImportMsg(err.message || "Não foi possível importar este arquivo.");
-    } finally {
-      setImporting(false);
-    }
+    try { const count = await onImport(file); setImportMsg(`${count} vistoria(s) importada(s) com sucesso.`); }
+    catch (err) { setImportMsg(err.message || "Não foi possível importar este arquivo."); }
+    finally { setImporting(false); }
   }
 
   return (
@@ -975,10 +541,10 @@ function ListView({ inspections, allInspections, query, setQuery, dateFilter, se
           <button onClick={toggleTheme} className="btn-ghost rounded-full p-2.5" title="Alternar tema claro/escuro">
             {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           </button>
-          <button onClick={() => onExport()} disabled={inspections.length === 0} className="btn-ghost rounded-full px-3 py-2.5 text-xs flex items-center gap-1.5" title="Exportar todas as vistorias (com fotos, vídeos e anexos) para um arquivo">
+          <button onClick={() => onExport()} disabled={inspections.length === 0} className="btn-ghost rounded-full px-3 py-2.5 text-xs flex items-center gap-1.5" title="Exportar todas as vistorias">
             <Download size={14} /> Exportar tudo
           </button>
-          <button onClick={() => importFileRef.current?.click()} disabled={importing} className="btn-ghost rounded-full px-3 py-2.5 text-xs flex items-center gap-1.5" title="Importar vistorias de um arquivo exportado antes">
+          <button onClick={() => importFileRef.current?.click()} disabled={importing} className="btn-ghost rounded-full px-3 py-2.5 text-xs flex items-center gap-1.5" title="Importar vistorias">
             {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Importar
           </button>
           <input ref={importFileRef} type="file" accept="application/json,.json" className="hidden" onChange={handleImportFile} />
@@ -988,11 +554,7 @@ function ListView({ inspections, allInspections, query, setQuery, dateFilter, se
         </div>
       </div>
 
-      {importMsg && (
-        <div className="max-w-5xl mx-auto px-6 pt-4">
-          <p className="text-xs rounded-xl px-4 py-2.5" style={{ background: "var(--card-alt)", border: "1px solid var(--line)", color: "var(--ink-soft)" }}>{importMsg}</p>
-        </div>
-      )}
+      {importMsg && (<div className="max-w-5xl mx-auto px-6 pt-4"><p className="text-xs rounded-xl px-4 py-2.5" style={{ background: "var(--card-alt)", border: "1px solid var(--line)", color: "var(--ink-soft)" }}>{importMsg}</p></div>)}
 
       <div className="max-w-5xl mx-auto px-6 pt-6">
         <div className="flex items-center gap-2 mb-6 flex-wrap">
@@ -1046,21 +608,14 @@ function ListView({ inspections, allInspections, query, setQuery, dateFilter, se
 
         <div className="relative mb-6">
           <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2" style={{ color: "var(--ink-soft)" }} />
-          <input
-            className="input w-full pl-10 pr-3 py-2.5 text-sm"
-            placeholder="Buscar por endereço, proprietário ou vistoriador..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+          <input className="input w-full pl-10 pr-3 py-2.5 text-sm" placeholder="Buscar por endereço, proprietário ou vistoriador..." value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
 
         {inspections.length === 0 ? (
           <div className="card p-12 text-center">
             <Building2 size={36} className="mx-auto mb-3" style={{ color: "var(--ink-soft)" }} />
             <h3 className="display text-lg font-semibold mb-1">Nenhuma vistoria ainda</h3>
-            <p className="text-sm mb-5" style={{ color: "var(--ink-soft)" }}>
-              Crie sua primeira vistoria para começar a registrar ambientes, itens e avarias.
-            </p>
+            <p className="text-sm mb-5" style={{ color: "var(--ink-soft)" }}>Crie sua primeira vistoria para começar a registrar ambientes, itens e avarias.</p>
             <button onClick={onNew} className="btn-primary rounded-full px-5 py-2.5 text-sm inline-flex items-center gap-2">
               <Plus size={16} /> Nova vistoria
             </button>
@@ -1069,29 +624,16 @@ function ListView({ inspections, allInspections, query, setQuery, dateFilter, se
           <div className="grid gap-3">
             {inspections.map((insp) => {
               const totalItens = insp.ambientes.reduce((a, amb) => a + amb.itens.length, 0);
-              const avarias = insp.ambientes.reduce(
-                (a, amb) => a + amb.itens.filter((it) => it.temDano).length, 0
-              );
+              const avarias = insp.ambientes.reduce((a, amb) => a + amb.itens.filter((it) => it.temDano).length, 0);
               return (
                 <div key={insp.id} className="card p-4 flex items-center gap-4 overflow-hidden">
-                  <div
-                    className="flex items-center justify-center rounded-xl shrink-0 overflow-hidden"
-                    style={{ width: 46, height: 46, background: "var(--card-alt)" }}
-                  >
-                    {insp.capaFoto ? (
-                      <img src={getUrlFoto(insp.capaFoto.src)} alt="" loading="lazy" className="w-full  object-contain"style={{height:"auto",maxHeight:200}} />
-                    ) : (
-                      <Building2 size={20} style={{ color: "var(--accent)" }} />
-                    )}
+                  <div className="flex items-center justify-center rounded-xl shrink-0 overflow-hidden" style={{ width: 46, height: 46, background: "var(--card-alt)" }}>
+                    {insp.capaFoto ? (<img src={getUrlFoto(insp.capaFoto.src)} alt="" loading="lazy" className="w-full object-contain" style={{ height: "auto", maxHeight: 200 }} />) : (<Building2 size={20} style={{ color: "var(--accent)" }} />)}
                   </div>
                   <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onOpen(insp.id)}>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-semibold text-sm truncate" style={{ color: "var(--ink-strong)" }}>
-                        {enderecoCompleto(insp.imovel) || "Endereço não informado"}
-                      </h3>
-                      <span className={`badge ${insp.status === "Finalizada" ? "badge-good" : "badge-neutral"}`}>
-                        {insp.status}
-                      </span>
+                      <h3 className="font-semibold text-sm truncate" style={{ color: "var(--ink-strong)" }}>{enderecoCompleto(insp.imovel) || "Endereço não informado"}</h3>
+                      <span className={`badge ${insp.status === "Finalizada" ? "badge-good" : "badge-neutral"}`}>{insp.status}</span>
                       <span className="badge badge-neutral">{insp.tipo}</span>
                     </div>
                     <p className="text-xs mt-1 mono" style={{ color: "var(--ink-soft)" }}>
@@ -1116,10 +658,6 @@ function ListView({ inspections, allInspections, query, setQuery, dateFilter, se
   );
 }
 
-// =====================================================================
-// 📖 AJUDA E MODELOS PRONTOS
-// =====================================================================
-
 function AjudaTab() {
   const passos = [
     { titulo: "Crie uma nova vistoria", texto: "Toque em \"Nova vistoria\" e preencha os dados gerais (tipo, data, vistoriador) e os dados do imóvel. Use o CEP para preencher o endereço automaticamente." },
@@ -1141,22 +679,10 @@ function AjudaTab() {
       <div className="grid gap-3">
         {passos.map((p, i) => (
           <div key={i} className="card p-4 flex gap-3">
-            <div
-              className="shrink-0 rounded-full flex items-center justify-center font-bold text-sm"
-              style={{ width: 30, height: 30, background: "var(--accent)", color: "#F3E4E7" }}
-            >
-              {i + 1}
-            </div>
-            <div>
-              <h3 className="font-semibold text-sm mb-0.5" style={{ color: "var(--ink-strong)" }}>{p.titulo}</h3>
-              <p className="text-sm" style={{ color: "var(--ink-soft)" }}>{p.texto}</p>
-            </div>
+            <div className="shrink-0 rounded-full flex items-center justify-center font-bold text-sm" style={{ width: 30, height: 30, background: "var(--accent)", color: "#F3E4E7" }}>{i + 1}</div>
+            <div><h3 className="font-semibold text-sm mb-0.5" style={{ color: "var(--ink-strong)" }}>{p.titulo}</h3><p className="text-sm" style={{ color: "var(--ink-soft)" }}>{p.texto}</p></div>
           </div>
         ))}
-      </div>
-      <div className="card p-4 mt-4 flex items-start gap-2 text-xs" style={{ color: "var(--ink-soft)" }}>
-        <Info size={14} className="shrink-0 mt-0.5" />
-        <span>Dica: use o botão de sol/lua no topo para alternar entre tema claro e escuro, e o microfone ao lado dos campos de observação para falar em vez de digitar enquanto anda pelo imóvel.</span>
       </div>
     </div>
   );
@@ -1168,9 +694,7 @@ function ModelosTab({ onUseModel, onGenerateExample, customModels, onCreateCusto
       <div className="card p-5 mb-6 flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h3 className="display text-sm font-bold mb-1">Vistoria de exemplo</h3>
-          <p className="text-xs" style={{ color: "var(--ink-soft)" }}>
-            Gera uma vistoria completa já preenchida (endereço, ambientes, medidores e chaves) para você ver como fica o resultado final.
-          </p>
+          <p className="text-xs" style={{ color: "var(--ink-soft)" }}>Gera uma vistoria completa já preenchida (endereço, ambientes, medidores e chaves) para você ver como fica o resultado final.</p>
         </div>
         <button onClick={onGenerateExample} className="btn-primary rounded-full px-4 py-2.5 text-sm flex items-center gap-2 shrink-0">
           <Plus size={16} /> Gerar exemplo
@@ -1188,9 +712,7 @@ function ModelosTab({ onUseModel, onGenerateExample, customModels, onCreateCusto
           <div key={key} className="card p-4 flex flex-col">
             <h4 className="display text-sm font-bold mb-1">{model.label}</h4>
             <p className="text-xs mb-3 flex-1" style={{ color: "var(--ink-soft)" }}>{model.descricao}</p>
-            <p className="text-xs mb-3 mono" style={{ color: "var(--ink-faint)" }}>
-              {Object.keys(model.ambientes).join(" · ")}
-            </p>
+            <p className="text-xs mb-3 mono" style={{ color: "var(--ink-faint)" }}>{Object.keys(model.ambientes).join(" · ")}</p>
             <button onClick={() => onUseModel(key)} className="btn-secondary rounded-full px-3 py-2 text-xs w-fit">
               Usar este modelo
             </button>
@@ -1204,16 +726,9 @@ function ModelosTab({ onUseModel, onGenerateExample, customModels, onCreateCusto
           <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
             {customModels.map((model) => (
               <div key={model.id} className="card p-4 flex flex-col">
-                <div className="flex items-start justify-between gap-2 mb-1">
-                  <h4 className="display text-sm font-bold">{model.label}</h4>
-                  <button onClick={() => onDeleteCustomModel(model.id)} className="btn-ghost rounded-full p-1.5 shrink-0" title="Excluir modelo">
-                    <Trash2 size={12} />
-                  </button>
-                </div>
+                <div className="flex items-start justify-between gap-2 mb-1"><h4 className="display text-sm font-bold">{model.label}</h4><button onClick={() => onDeleteCustomModel(model.id)} className="btn-ghost rounded-full p-1.5 shrink-0" title="Excluir modelo"><Trash2 size={12} /></button></div>
                 <p className="text-xs mb-3 flex-1" style={{ color: "var(--ink-soft)" }}>{model.descricao}</p>
-                <p className="text-xs mb-3 mono" style={{ color: "var(--ink-faint)" }}>
-                  {Object.keys(model.ambientes).join(" · ") || "sem ambientes"}
-                </p>
+                <p className="text-xs mb-3 mono" style={{ color: "var(--ink-faint)" }}>{Object.keys(model.ambientes).join(" · ") || "sem ambientes"}</p>
                 <button onClick={() => onUseModel(model)} className="btn-secondary rounded-full px-3 py-2 text-xs w-fit">
                   Usar este modelo
                 </button>
@@ -1222,16 +737,9 @@ function ModelosTab({ onUseModel, onGenerateExample, customModels, onCreateCusto
           </div>
         </>
       )}
-
-      <p className="text-xs mt-2" style={{ color: "var(--ink-soft)" }}>
-        Ao escolher um modelo, os ambientes e itens são criados automaticamente — você ainda pode editar, adicionar ou remover qualquer um deles depois.
-      </p>
     </div>
   );
 }
-// =====================================================================
-// 🏗️ CONSTRUTOR DE MODELOS PERSONALIZADOS
-// =====================================================================
 
 function ModelBuilderView({ onCancel, onSave }) {
   const [nome, setNome] = useState("");
@@ -1261,21 +769,14 @@ function ModelBuilderView({ onCancel, onSave }) {
       const itens = a.itensTexto.split(",").map((s) => s.trim()).filter(Boolean);
       ambientesObj[a.nome.trim()] = itens.length > 0 ? itens : ["Estado geral"];
     });
-    await onSave({
-      id: uid(),
-      label: nome.trim(),
-      descricao: "Modelo personalizado",
-      ambientes: ambientesObj,
-    });
+    await onSave({ id: uid(), label: nome.trim(), descricao: "Modelo personalizado", ambientes: ambientesObj });
     setSaving(false);
   }
 
   return (
     <div className="min-h-full">
       <div className="topbar px-6 py-5 flex items-center gap-3">
-        <button onClick={onCancel} className="btn-ghost rounded-full p-2">
-          <ArrowLeft size={18} />
-        </button>
+        <button onClick={onCancel} className="btn-ghost rounded-full p-2"><ArrowLeft size={18} /></button>
         <h1 className="display text-lg font-bold">Criar meu modelo de vistoria</h1>
       </div>
 
@@ -1286,53 +787,29 @@ function ModelBuilderView({ onCancel, onSave }) {
         </div>
 
         <div className="card p-6 mb-4">
-          <h2 className="display text-sm font-bold mb-4 flex items-center gap-2">
-            <Layers size={15} /> Ambientes do modelo
-          </h2>
+          <h2 className="display text-sm font-bold mb-4 flex items-center gap-2"><Layers size={15} /> Ambientes do modelo</h2>
           <div className="grid gap-3">
             {ambientes.map((a) => (
               <div key={a.id} className="p-3 rounded-2xl" style={{ border: "1px solid var(--line)", background: "var(--card-alt)" }}>
                 <div className="flex items-center gap-2 mb-2">
-                  <input
-                    className="input flex-1 px-4 py-2 text-sm"
-                    placeholder="Nome do ambiente (ex: Sala de Jantar)"
-                    value={a.nome}
-                    onChange={(e) => updateAmbiente(a.id, "nome", e.target.value)}
-                  />
-                  {ambientes.length > 1 && (
-                    <button onClick={() => removeAmbienteRow(a.id)} className="btn-ghost rounded-full p-2 shrink-0">
-                      <Trash2 size={13} />
-                    </button>
-                  )}
+                  <input className="input flex-1 px-4 py-2 text-sm" placeholder="Nome do ambiente (ex: Sala de Jantar)" value={a.nome} onChange={(e) => updateAmbiente(a.id, "nome", e.target.value)} />
+                  {ambientes.length > 1 && (<button onClick={() => removeAmbienteRow(a.id)} className="btn-ghost rounded-full p-2 shrink-0"><Trash2 size={13} /></button>)}
                 </div>
-                <input
-                  className="input w-full px-4 py-2 text-sm"
-                  placeholder="Itens separados por vírgula (ex: Teto, Parede, Piso, Janela)"
-                  value={a.itensTexto}
-                  onChange={(e) => updateAmbiente(a.id, "itensTexto", e.target.value)}
-                />
+                <input className="input w-full px-4 py-2 text-sm" placeholder="Itens separados por vírgula (ex: Teto, Parede, Piso, Janela)" value={a.itensTexto} onChange={(e) => updateAmbiente(a.id, "itensTexto", e.target.value)} />
               </div>
             ))}
           </div>
-          <button onClick={addAmbienteRow} className="btn-ghost rounded-full px-3 py-2 text-xs mt-3 flex items-center gap-1.5">
-            <Plus size={13} /> Adicionar ambiente
-          </button>
+          <button onClick={addAmbienteRow} className="btn-ghost rounded-full px-3 py-2 text-xs mt-3 flex items-center gap-1.5"><Plus size={13} /> Adicionar ambiente</button>
         </div>
 
         <div className="flex justify-end gap-3">
           <button onClick={onCancel} className="btn-ghost rounded-full px-5 py-2.5 text-sm">Cancelar</button>
-          <button disabled={!canSave || saving} onClick={handleSave} className="btn-primary rounded-full px-5 py-2.5 text-sm">
-            {saving ? "Salvando..." : "Salvar modelo"}
-          </button>
+          <button disabled={!canSave || saving} onClick={handleSave} className="btn-primary rounded-full px-5 py-2.5 text-sm">{saving ? "Salvando..." : "Salvar modelo"}</button>
         </div>
       </div>
     </div>
   );
 }
-
-// =====================================================================
-// 🆕 NOVA VISTORIA (Formulário Inicial)
-// =====================================================================
 
 function NewInspectionView({ onCancel, onCreate, initialModel }) {
   const [form, setForm] = useState({
@@ -1352,7 +829,7 @@ function NewInspectionView({ onCancel, onCreate, initialModel }) {
     inquilino: "",
     tipoImovel: (typeof initialModel === "string" && initialModel) || "Apartamento",
   });
-  const [cepStatus, setCepStatus] = useState("idle"); // idle | loading | ok | error
+  const [cepStatus, setCepStatus] = useState("idle");
   const [modelKey, setModelKey] = useState(initialModel || null);
   const [capaFoto, setCapaFoto] = useState(null);
   const capaFileRef = useRef(null);
@@ -1368,18 +845,8 @@ function NewInspectionView({ onCancel, onCreate, initialModel }) {
     try {
       const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
       const data = await res.json();
-      if (data.erro) {
-        setCepStatus("error");
-        return;
-      }
-      setForm((f) => ({
-        ...f,
-        endereco: data.logradouro || f.endereco,
-        bairro: data.bairro || f.bairro,
-        cidade: data.localidade || f.cidade,
-        estado: data.uf || f.estado,
-        complemento: data.complemento || f.complemento,
-      }));
+      if (data.erro) { setCepStatus("error"); return; }
+      setForm((f) => ({ ...f, endereco: data.logradouro || f.endereco, bairro: data.bairro || f.bairro, cidade: data.localidade || f.cidade, estado: data.uf || f.estado, complemento: data.complemento || f.complemento }));
       setCepStatus("ok");
     } catch {
       setCepStatus("error");
@@ -1403,16 +870,9 @@ function NewInspectionView({ onCancel, onCreate, initialModel }) {
       capaFoto,
       ambientes: modelKey ? ambientesFromModel(modelKey) : [],
       imovel: {
-        cep: form.cep,
-        endereco: form.endereco,
-        numero: form.numero,
-        bairro: form.bairro,
-        cidade: form.cidade,
-        estado: form.estado,
-        complemento: form.complemento,
-        metragem: form.metragem,
-        proprietario: form.proprietario,
-        inquilino: form.inquilino,
+        cep: form.cep, endereco: form.endereco, numero: form.numero, bairro: form.bairro,
+        cidade: form.cidade, estado: form.estado, complemento: form.complemento,
+        metragem: form.metragem, proprietario: form.proprietario, inquilino: form.inquilino,
         tipoImovel: form.tipoImovel,
       },
     });
@@ -1423,9 +883,7 @@ function NewInspectionView({ onCancel, onCreate, initialModel }) {
   return (
     <div className="min-h-full">
       <div className="topbar px-6 py-5 flex items-center gap-3">
-        <button onClick={onCancel} className="btn-ghost rounded-full p-2">
-          <ArrowLeft size={18} />
-        </button>
+        <button onClick={onCancel} className="btn-ghost rounded-full p-2"><ArrowLeft size={18} /></button>
         <h1 className="display text-lg font-bold">Nova vistoria</h1>
       </div>
 
@@ -1435,24 +893,18 @@ function NewInspectionView({ onCancel, onCreate, initialModel }) {
           if (!modelObj) return null;
           return (
             <div className="rounded-xl px-4 py-3 text-xs flex items-center justify-between gap-2 mb-4" style={{ background: "var(--card-alt)", border: "1px solid var(--accent)" }}>
-              <span style={{ color: "var(--ink-strong)" }}>
-                Modelo <strong>{modelObj.label}</strong> selecionado — {Object.keys(modelObj.ambientes || {}).length} ambientes serão criados automaticamente.
-              </span>
+              <span style={{ color: "var(--ink-strong)" }}>Modelo <strong>{modelObj.label}</strong> selecionado — {Object.keys(modelObj.ambientes || {}).length} ambientes serão criados automaticamente.</span>
               <button onClick={() => setModelKey(null)} className="btn-ghost rounded-full px-2.5 py-1 shrink-0">Começar em branco</button>
             </div>
           );
         })()}
 
         <div className="card p-6 mb-4">
-          <h2 className="display text-sm font-bold mb-4 flex items-center gap-2">
-            <Camera size={15} /> Foto do imóvel
-          </h2>
+          <h2 className="display text-sm font-bold mb-4 flex items-center gap-2"><Camera size={15} /> Foto do imóvel</h2>
           {capaFoto ? (
             <div className="relative w-fit">
               <img src={getUrlFoto(capaFoto.src)} alt="Capa" style={{ width: 160, height: 110, objectFit: "cover", borderRadius: 12, border: "1px solid var(--line)" }} />
-              <button onClick={() => setCapaFoto(null)} className="absolute -top-2 -right-2 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 18, height: 18 }}>
-                <X size={11} />
-              </button>
+              <button onClick={() => setCapaFoto(null)} className="absolute -top-2 -right-2 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 18, height: 18 }}><X size={11} /></button>
             </div>
           ) : (
             <button onClick={() => capaFileRef.current?.click()} className="btn-ghost rounded-2xl flex flex-col items-center justify-center gap-1 text-xs" style={{ width: 160, height: 110 }}>
@@ -1463,130 +915,40 @@ function NewInspectionView({ onCancel, onCreate, initialModel }) {
         </div>
 
         <div className="card p-6 mb-4">
-          <h2 className="display text-sm font-bold mb-4 flex items-center gap-2">
-            <Calendar size={15} /> Dados gerais
-          </h2>
+          <h2 className="display text-sm font-bold mb-4 flex items-center gap-2"><Calendar size={15} /> Dados gerais</h2>
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label block mb-1.5">Tipo de vistoria</label>
-              <select className="select w-full px-4 py-2.5 text-sm" value={form.tipo} onChange={(e) => set("tipo", e.target.value)}>
-                <option>Entrada</option>
-                <option>Saída</option>
-                <option>Manutenção</option>
-                <option>Rotina</option>
-                <option>Captação</option>
-                <option>Periódica</option>
-              </select>
-            </div>
-            <div>
-              <label className="label block mb-1.5">Data da vistoria</label>
-              <input type="date" className="input w-full px-4 py-2.5 text-sm" value={form.dataVistoria} onChange={(e) => set("dataVistoria", e.target.value)} />
-            </div>
-            <div className="col-span-2">
-              <label className="label block mb-1.5">Vistoriador responsável</label>
-              <input className="input w-full px-4 py-2.5 text-sm" placeholder="Nome do vistoriador" value={form.vistoriador} onChange={(e) => set("vistoriador", e.target.value)} />
-            </div>
-            <div className="col-span-2">
-              <label className="label block mb-1.5">Situação do imóvel</label>
-              <div className="flex gap-2 flex-wrap">
-                {["Vazio", "Mobiliado", "Semi-mobiliado"].map((op) => (
-                  <button
-                    key={op}
-                    type="button"
-                    onClick={() => set("mobiliario", op)}
-                    className={`tab-btn px-4 py-2 text-sm ${form.mobiliario === op ? "active" : ""}`}
-                  >
-                    {op}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <div><label className="label block mb-1.5">Tipo de vistoria</label><select className="select w-full px-4 py-2.5 text-sm" value={form.tipo} onChange={(e) => set("tipo", e.target.value)}><option>Entrada</option><option>Saída</option><option>Manutenção</option><option>Rotina</option><option>Captação</option><option>Periódica</option></select></div>
+            <div><label className="label block mb-1.5">Data da vistoria</label><input type="date" className="input w-full px-4 py-2.5 text-sm" value={form.dataVistoria} onChange={(e) => set("dataVistoria", e.target.value)} /></div>
+            <div className="col-span-2"><label className="label block mb-1.5">Vistoriador responsável</label><input className="input w-full px-4 py-2.5 text-sm" placeholder="Nome do vistoriador" value={form.vistoriador} onChange={(e) => set("vistoriador", e.target.value)} /></div>
+            <div className="col-span-2"><label className="label block mb-1.5">Situação do imóvel</label><div className="flex gap-2 flex-wrap">{["Vazio", "Mobiliado", "Semi-mobiliado"].map((op) => (<button key={op} type="button" onClick={() => set("mobiliario", op)} className={`tab-btn px-4 py-2 text-sm ${form.mobiliario === op ? "active" : ""}`}>{op}</button>))}</div></div>
           </div>
         </div>
 
         <div className="card p-6 mb-6">
-          <h2 className="display text-sm font-bold flex items-center gap-2 mb-4">
-            <Building2 size={15} /> Dados do imóvel
-          </h2>
+          <h2 className="display text-sm font-bold flex items-center gap-2 mb-4"><Building2 size={15} /> Dados do imóvel</h2>
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label block mb-1.5">CEP</label>
-              <input
-                className="input w-full px-4 py-2.5 text-sm"
-                placeholder="00000-000"
-                value={form.cep}
-                onChange={(e) => set("cep", e.target.value)}
-                onBlur={handleCepBlur}
-                maxLength={9}
-              />
-              {cepStatus === "loading" && <p className="text-xs mt-1 flex items-center gap-1" style={{ color: "var(--ink-soft)" }}><Loader2 size={11} className="animate-spin" /> Buscando endereço...</p>}
-              {cepStatus === "ok" && <p className="text-xs mt-1" style={{ color: "var(--good)" }}>Endereço preenchido automaticamente</p>}
-              {cepStatus === "error" && <p className="text-xs mt-1" style={{ color: "var(--bad)" }}>CEP não encontrado, preencha manualmente</p>}
-            </div>
-            <div>
-              <label className="label block mb-1.5">Metragem do imóvel</label>
-              <input className="input w-full px-4 py-2.5 text-sm" placeholder="Ex: 65 m²" value={form.metragem} onChange={(e) => set("metragem", e.target.value)} />
-            </div>
-            <div className="col-span-2">
-              <label className="label block mb-1.5">Endereço (rua/avenida)</label>
-              <input className="input w-full px-4 py-2.5 text-sm" placeholder="Rua, avenida..." value={form.endereco} onChange={(e) => set("endereco", e.target.value)} />
-            </div>
-            <div>
-              <label className="label block mb-1.5">Número</label>
-              <input className="input w-full px-4 py-2.5 text-sm" placeholder="Nº" value={form.numero} onChange={(e) => set("numero", e.target.value)} />
-            </div>
-            <div>
-              <label className="label block mb-1.5">Complemento (opcional)</label>
-              <input className="input w-full px-4 py-2.5 text-sm" placeholder="Apto, bloco..." value={form.complemento} onChange={(e) => set("complemento", e.target.value)} />
-            </div>
-            <div>
-              <label className="label block mb-1.5">Bairro</label>
-              <input className="input w-full px-4 py-2.5 text-sm" placeholder="Bairro" value={form.bairro} onChange={(e) => set("bairro", e.target.value)} />
-            </div>
-            <div>
-              <label className="label block mb-1.5">Cidade</label>
-              <input className="input w-full px-4 py-2.5 text-sm" placeholder="Cidade" value={form.cidade} onChange={(e) => set("cidade", e.target.value)} />
-            </div>
-            <div>
-              <label className="label block mb-1.5">Estado</label>
-              <input className="input w-full px-4 py-2.5 text-sm" placeholder="UF" maxLength={2} value={form.estado} onChange={(e) => set("estado", e.target.value.toUpperCase())} />
-            </div>
-            <div>
-              <label className="label block mb-1.5">Tipo de imóvel</label>
-              <select className="select w-full px-4 py-2.5 text-sm" value={form.tipoImovel} onChange={(e) => set("tipoImovel", e.target.value)}>
-                <option>Apartamento</option>
-                <option>Casa</option>
-                <option>Kitnet</option>
-                <option>Comercial</option>
-                <option>Sala comercial</option>
-                <option>Galpão</option>
-              </select>
-            </div>
-            <div>
-              <label className="label block mb-1.5">Proprietário</label>
-              <input className="input w-full px-4 py-2.5 text-sm" placeholder="Nome do proprietário" value={form.proprietario} onChange={(e) => set("proprietario", e.target.value)} />
-            </div>
-            <div className="col-span-2">
-              <label className="label block mb-1.5">Inquilino / responsável</label>
-              <input className="input w-full px-4 py-2.5 text-sm" placeholder="Nome do inquilino (opcional)" value={form.inquilino} onChange={(e) => set("inquilino", e.target.value)} />
-            </div>
+            <div><label className="label block mb-1.5">CEP</label><input className="input w-full px-4 py-2.5 text-sm" placeholder="00000-000" value={form.cep} onChange={(e) => set("cep", e.target.value)} onBlur={handleCepBlur} maxLength={9} />{cepStatus === "loading" && <p className="text-xs mt-1 flex items-center gap-1" style={{ color: "var(--ink-soft)" }}><Loader2 size={11} className="animate-spin" /> Buscando endereço...</p>}{cepStatus === "ok" && <p className="text-xs mt-1" style={{ color: "var(--good)" }}>Endereço preenchido automaticamente</p>}{cepStatus === "error" && <p className="text-xs mt-1" style={{ color: "var(--bad)" }}>CEP não encontrado, preencha manualmente</p>}</div>
+            <div><label className="label block mb-1.5">Metragem do imóvel</label><input className="input w-full px-4 py-2.5 text-sm" placeholder="Ex: 65 m²" value={form.metragem} onChange={(e) => set("metragem", e.target.value)} /></div>
+            <div className="col-span-2"><label className="label block mb-1.5">Endereço (rua/avenida)</label><input className="input w-full px-4 py-2.5 text-sm" placeholder="Rua, avenida..." value={form.endereco} onChange={(e) => set("endereco", e.target.value)} /></div>
+            <div><label className="label block mb-1.5">Número</label><input className="input w-full px-4 py-2.5 text-sm" placeholder="Nº" value={form.numero} onChange={(e) => set("numero", e.target.value)} /></div>
+            <div><label className="label block mb-1.5">Complemento (opcional)</label><input className="input w-full px-4 py-2.5 text-sm" placeholder="Apto, bloco..." value={form.complemento} onChange={(e) => set("complemento", e.target.value)} /></div>
+            <div><label className="label block mb-1.5">Bairro</label><input className="input w-full px-4 py-2.5 text-sm" placeholder="Bairro" value={form.bairro} onChange={(e) => set("bairro", e.target.value)} /></div>
+            <div><label className="label block mb-1.5">Cidade</label><input className="input w-full px-4 py-2.5 text-sm" placeholder="Cidade" value={form.cidade} onChange={(e) => set("cidade", e.target.value)} /></div>
+            <div><label className="label block mb-1.5">Estado</label><input className="input w-full px-4 py-2.5 text-sm" placeholder="UF" maxLength={2} value={form.estado} onChange={(e) => set("estado", e.target.value.toUpperCase())} /></div>
+            <div><label className="label block mb-1.5">Tipo de imóvel</label><select className="select w-full px-4 py-2.5 text-sm" value={form.tipoImovel} onChange={(e) => set("tipoImovel", e.target.value)}><option>Apartamento</option><option>Casa</option><option>Kitnet</option><option>Comercial</option><option>Sala comercial</option><option>Galpão</option></select></div>
+            <div><label className="label block mb-1.5">Proprietário</label><input className="input w-full px-4 py-2.5 text-sm" placeholder="Nome do proprietário" value={form.proprietario} onChange={(e) => set("proprietario", e.target.value)} /></div>
+            <div className="col-span-2"><label className="label block mb-1.5">Inquilino / responsável</label><input className="input w-full px-4 py-2.5 text-sm" placeholder="Nome do inquilino (opcional)" value={form.inquilino} onChange={(e) => set("inquilino", e.target.value)} /></div>
           </div>
         </div>
 
         <div className="flex justify-end gap-3">
           <button onClick={onCancel} className="btn-ghost rounded-full px-5 py-2.5 text-sm">Cancelar</button>
-          <button disabled={!canSubmit} onClick={submit} className="btn-primary rounded-full px-5 py-2.5 text-sm">
-            Criar vistoria e continuar
-          </button>
+          <button disabled={!canSubmit} onClick={submit} className="btn-primary rounded-full px-5 py-2.5 text-sm">Criar vistoria e continuar</button>
         </div>
       </div>
     </div>
   );
 }
-
-// =====================================================================
-// 📋 DETALHES DA VISTORIA (DetailView, Ambientes, Itens)
-// =====================================================================
 
 function CapaFotoEditor({ capaFoto, locked, onChange }) {
   const fileRef = useRef(null);
@@ -1606,9 +968,7 @@ function CapaFotoEditor({ capaFoto, locked, onChange }) {
           <img src={getUrlFoto(capaFoto.src)} alt="Foto do imóvel" style={{ width: 140, height: 95, objectFit: "cover", borderRadius: 12, border: "1px solid var(--line)" }} />
           {capaFoto.date && <span className="photo-date" style={{ borderRadius: "0 0 12px 12px" }}>{fmtDateTime(capaFoto.date)}</span>}
           {!locked && (
-            <button onClick={() => onChange(null)} className="absolute -top-2 -right-2 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 18, height: 18 }}>
-              <X size={11} />
-            </button>
+            <button onClick={() => onChange(null)} className="absolute -top-2 -right-2 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 18, height: 18 }}><X size={11} /></button>
           )}
         </div>
       ) : (
@@ -1630,10 +990,7 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
   const locked = inspection.status === "Finalizada";
 
   function addAmbiente(nome, itensBase = []) {
-    onUpdate((insp) => ({
-      ...insp,
-      ambientes: [...insp.ambientes, makeAmbiente(nome, itensBase)],
-    }));
+    onUpdate((insp) => ({ ...insp, ambientes: [...insp.ambientes, makeAmbiente(nome, itensBase)] }));
   }
 
   function applyModel(modelKeyOrObj) {
@@ -1646,10 +1003,7 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
   }
 
   function updateAmbiente(ambId, fn) {
-    onUpdate((insp) => ({
-      ...insp,
-      ambientes: insp.ambientes.map((a) => (a.id === ambId ? fn(a) : a)),
-    }));
+    onUpdate((insp) => ({ ...insp, ambientes: insp.ambientes.map((a) => (a.id === ambId ? fn(a) : a)) }));
   }
 
   function toggleStatus() {
@@ -1663,67 +1017,26 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
     <div className="min-h-full">
       <div className="topbar px-6 py-4 flex items-center justify-between gap-4 no-print">
         <div className="flex items-center gap-3 min-w-0">
-          <button onClick={onBack} className="btn-ghost rounded-full p-2 shrink-0">
-            <ArrowLeft size={18} />
-          </button>
+          <button onClick={onBack} className="btn-ghost rounded-full p-2 shrink-0"><ArrowLeft size={18} /></button>
           <div className="min-w-0">
+            <h1 className="display text-base font-bold truncate">{enderecoCompleto(inspection.imovel) || "Vistoria sem endereço"}</h1>
+            <p className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{inspection.tipo} · {fmtDate(inspection.dataVistoria)} · {inspection.vistoriador}</p>
+          </div>
+        </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button onClick={onExport} className="btn-ghost rounded-full p-2" title="Exportar esta vistoria (com fotos, vídeos e anexos)">
-            <Download size={16} />
-          </button>
-          
-          <HeaderCameraButton
-            onUpload={async (files) => {
-              const photos = await filesToPhotos(files);
-              onUpdate((insp) => ({
-                ...insp,
-                ambientes: insp.ambientes.map((amb, index) => 
-                  index === 0 ? { ...amb, fotos: [...amb.fotos, ...photos] } : amb
-                ),
-              }));
-            }}
-            locked={locked}
-          />
-
-          <button onClick={() => setShowQr(true)} className="btn-ghost rounded-full p-2" title="QR do imóvel">
-            <QrCode size={16} />
-          </button>
+          <button onClick={onExport} className="btn-ghost rounded-full p-2" title="Exportar esta vistoria"><Download size={16} /></button>
+          <button onClick={() => setShowQr(true)} className="btn-ghost rounded-full p-2" title="QR do imóvel"><QrCode size={16} /></button>
           <button onClick={toggleStatus} className="btn-primary rounded-full px-3 py-2 text-xs flex items-center gap-1.5">
             {locked ? <Unlock size={14} /> : <Lock size={14} />}
             {locked ? "Reabrir" : "Finalizar"}
           </button>
         </div>
-          <HeaderCameraButton
-            onUpload={async (files) => {
-              const photos = await filesToPhotos(files);
-              onUpdate((insp) => ({
-                ...insp,
-                ambientes: insp.ambientes.map((amb, index) => 
-                  index === 0 ? { ...amb, fotos: [...amb.fotos, ...photos] } : amb
-                ),
-              }));
-            }}
-            locked={locked}
-          />
-
-          <button onClick={() => setShowQr(true)} className="btn-ghost rounded-full p-2" title="QR do imóvel">
-            <QrCode size={16} />
-          </button>
-          <button onClick={toggleStatus} className="btn-primary rounded-full px-3 py-2 text-xs flex items-center gap-1.5">
-            {locked ? <Unlock size={14} /> : <Lock size={14} />}
-            {locked ? "Reabrir" : "Finalizar"}
-          </button>
-        </div>
-        </div>
+      </div>
 
       {showQr && <QrCodeModal inspection={inspection} onClose={() => setShowQr(false)} />}
 
       <div className={tab === "pdf" ? "max-w-6xl mx-auto px-4 py-6" : "max-w-4xl mx-auto px-6 py-6"}>
-        <CapaFotoEditor
-          capaFoto={inspection.capaFoto}
-          locked={locked}
-          onChange={(foto) => onUpdate((insp) => ({ ...insp, capaFoto: foto }))}
-        />
+        <CapaFotoEditor capaFoto={inspection.capaFoto} locked={locked} onChange={(foto) => onUpdate((insp) => ({ ...insp, capaFoto: foto }))} />
 
         <div className="flex items-center gap-2 mb-4 flex-wrap">
           <span className="badge badge-neutral">{inspection.imovel.tipoImovel}</span>
@@ -1735,27 +1048,13 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
         </div>
 
         <div className="flex items-center gap-2 mb-6 no-print flex-wrap">
-          <button onClick={() => setTab("ambientes")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "ambientes" ? "active" : ""}`}>
-            <Layers size={14} /> Ambientes
-          </button>
-          <button onClick={() => setTab("medidores")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "medidores" ? "active" : ""}`}>
-            <Gauge size={14} /> Medidores
-          </button>
-          <button onClick={() => setTab("chaves")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "chaves" ? "active" : ""}`}>
-            <KeyRound size={14} /> Chaves
-          </button>
-          <button onClick={() => setTab("comparar")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "comparar" ? "active" : ""}`}>
-            <GitCompare size={14} /> Comparar
-          </button>
-          <button onClick={() => setTab("parecer")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "parecer" ? "active" : ""}`}>
-            <FileText size={14} /> Parecer Técnico
-          </button>
-          <button onClick={() => setTab("assinatura")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "assinatura" ? "active" : ""}`}>
-            <PenLine size={14} /> Assinatura Digital
-          </button>
-          <button onClick={() => setTab("pdf")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "pdf" ? "active" : ""}`}>
-            <Printer size={14} /> PDF
-          </button>
+          <button onClick={() => setTab("ambientes")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "ambientes" ? "active" : ""}`}><Layers size={14} /> Ambientes</button>
+          <button onClick={() => setTab("medidores")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "medidores" ? "active" : ""}`}><Gauge size={14} /> Medidores</button>
+          <button onClick={() => setTab("chaves")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "chaves" ? "active" : ""}`}><KeyRound size={14} /> Chaves</button>
+          <button onClick={() => setTab("comparar")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "comparar" ? "active" : ""}`}><GitCompare size={14} /> Comparar</button>
+          <button onClick={() => setTab("parecer")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "parecer" ? "active" : ""}`}><FileText size={14} /> Parecer Técnico</button>
+          <button onClick={() => setTab("assinatura")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "assinatura" ? "active" : ""}`}><PenLine size={14} /> Assinatura Digital</button>
+          <button onClick={() => setTab("pdf")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "pdf" ? "active" : ""}`}><Printer size={14} /> PDF</button>
         </div>
 
         {tab === "ambientes" && (
@@ -1771,7 +1070,6 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
             customModels={customModels}
           />
         )}
-
         {tab === "medidores" && (
           <MedidoresTab
             medidores={inspection.medidores}
@@ -1779,7 +1077,6 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
             onChange={(fn) => onUpdate((insp) => ({ ...insp, medidores: fn(insp.medidores) }))}
           />
         )}
-
         {tab === "chaves" && (
           <ChavesTab
             chaves={inspection.chaves}
@@ -1787,11 +1084,9 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
             onChange={(fn) => onUpdate((insp) => ({ ...insp, chaves: fn(insp.chaves) }))}
           />
         )}
-
         {tab === "comparar" && (
           <ComparacaoTab inspection={inspection} allInspections={allInspections} />
         )}
-
         {tab === "parecer" && (
           <ParecerTecnicoTab
             parecerTecnico={inspection.parecerTecnico}
@@ -1799,159 +1094,20 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
             onChange={(fn) => onUpdate((insp) => ({ ...insp, parecerTecnico: fn(insp.parecerTecnico || { texto: "", anexos: [] }) }))}
           />
         )}
-
         {tab === "assinatura" && (
           <AssinaturaTab inspection={inspection} locked={locked} onUpdate={onUpdate} />
         )}
-
         {tab === "pdf" && (
           <ReportView inspection={inspection} onUpdate={onUpdate} embedded />
         )}
       </div>
-<div className="flex items-center gap-2 shrink-0">
-  <button onClick={onExport} className="btn-ghost rounded-full p-2" title="Exportar esta vistoria">
-    <Download size={16} />
-  </button>
-  <button onClick={() => setShowQr(true)} className="btn-ghost rounded-full p-2" title="QR do imóvel">
-    <QrCode size={16} />
-  </button>
-
-
-  <button onClick={toggleStatus} className="btn-primary rounded-full px-3 py-2 text-xs flex items-center gap-1.5">
-    {locked ? <Unlock size={14} /> : <Lock size={14} />}
-    {locked ? "Reabrir" : "Finalizar"}
-  </button>
-  </div>    
-</div>
-</div>
-  );
-}
-// =====================================================================
-// ⚖️ COMPARAÇÃO ENTRE VISTORIAS
-// =====================================================================
-
-function ComparacaoTab({ inspection, allInspections }) {
-  const candidatas = allInspections.filter((i) => i.id !== inspection.id);
-  const mesmoEndereco = candidatas.filter(
-    (i) => i.imovel.endereco && i.imovel.endereco === inspection.imovel.endereco && i.imovel.numero === inspection.imovel.numero
-  );
-  const lista = mesmoEndereco.length > 0 ? mesmoEndereco : candidatas;
-
-  const [compareId, setCompareId] = useState("");
-  const outra = lista.find((i) => i.id === compareId) || null;
-
-  if (candidatas.length === 0) {
-    return (
-      <div className="card p-8 text-center">
-        <GitCompare size={28} className="mx-auto mb-2" style={{ color: "var(--ink-soft)" }} />
-        <p className="text-sm" style={{ color: "var(--ink-soft)" }}>Você ainda não tem outra vistoria para comparar com esta.</p>
-      </div>
-    );
-  }
-
-  const [A, B] = outra
-    ? [outra, inspection].sort((x, y) => new Date(x.dataVistoria) - new Date(y.dataVistoria))
-    : [null, null];
-
-  const linhas = [];
-  if (A && B) {
-    A.ambientes.forEach((ambA) => {
-      const ambB = B.ambientes.find((a) => a.nome === ambA.nome);
-      ambA.itens.forEach((itA) => {
-        const itB = ambB?.itens.find((it) => it.nome === itA.nome);
-        if (!itB) {
-          linhas.push({ ambiente: ambA.nome, item: itA.nome, tipo: "removido", estadoA: itA.estado, estadoB: null });
-          return;
-        }
-        const mudouEstado = itA.estado !== itB.estado || itA.semTeste !== itB.semTeste;
-        const mudouDano = itA.temDano !== itB.temDano || (itA.temDano && itB.temDano && itA.descricaoDano !== itB.descricaoDano);
-        if (mudouEstado || mudouDano) {
-          linhas.push({
-            ambiente: ambA.nome, item: itA.nome, tipo: "mudou",
-            estadoA: itA.semTeste ? "Sem teste" : itA.estado, estadoB: itB.semTeste ? "Sem teste" : itB.estado,
-            danoA: itA.temDano ? (itA.descricaoDano || "avaria registrada") : null,
-            danoB: itB.temDano ? (itB.descricaoDano || "avaria registrada") : null,
-          });
-        }
-      });
-      ambB?.itens.forEach((itB) => {
-        if (!ambA.itens.find((it) => it.nome === itB.nome)) {
-          linhas.push({ ambiente: ambA.nome, item: itB.nome, tipo: "novo", estadoA: null, estadoB: itB.estado });
-        }
-      });
-    });
-    B.ambientes.forEach((ambB) => {
-      if (!A.ambientes.find((a) => a.nome === ambB.nome)) {
-        linhas.push({ ambiente: ambB.nome, item: null, tipo: "ambiente_novo" });
-      }
-    });
-  }
-
-  return (
-    <div>
-      <div className="card p-4 mb-4">
-        <label className="label block mb-1.5">Comparar com</label>
-        <select className="select w-full px-4 py-2.5 text-sm" value={compareId} onChange={(e) => setCompareId(e.target.value)}>
-          <option value="">Selecione uma vistoria...</option>
-          {lista.map((i) => (
-            <option key={i.id} value={i.id}>{i.tipo} · {fmtDate(i.dataVistoria)} · {enderecoCompleto(i.imovel) || "sem endereço"}</option>
-          ))}
-        </select>
-        {mesmoEndereco.length === 0 && (
-          <p className="text-xs mt-2" style={{ color: "var(--ink-soft)" }}>Nenhuma outra vistoria encontrada com o mesmo endereço — mostrando todas as vistorias.</p>
-        )}
-      </div>
-
-      {A && B && (
-        <>
-          <div className="flex items-center gap-2 mb-4 text-xs flex-wrap" style={{ color: "var(--ink-soft)" }}>
-            <span className="badge badge-neutral">{A.tipo} — {fmtDate(A.dataVistoria)}</span>
-            <ChevronRight size={13} />
-            <span className="badge badge-neutral">{B.tipo} — {fmtDate(B.dataVistoria)}</span>
-          </div>
-
-          {linhas.length === 0 ? (
-            <div className="card p-6 text-center">
-              <CheckCircle2 size={22} className="mx-auto mb-2" style={{ color: "var(--good)" }} />
-              <p className="text-sm" style={{ color: "var(--ink-soft)" }}>Nenhuma diferença encontrada entre as duas vistorias.</p>
-            </div>
-          ) : (
-            <div className="grid gap-2">
-              {linhas.map((l, i) => (
-                <div key={i} className="card p-3">
-                  <p className="text-xs mb-1" style={{ color: "var(--ink-soft)" }}>{l.ambiente}</p>
-                  {l.tipo === "ambiente_novo" ? (
-                    <p className="text-sm"><span className="badge badge-warn">Ambiente novo</span> adicionado na vistoria mais recente</p>
-                  ) : (
-                    <>
-                      <p className="text-sm font-medium mb-1" style={{ color: "var(--ink-strong)" }}>{l.item}</p>
-                      <div className="flex items-center gap-2 flex-wrap text-xs">
-                        {l.tipo === "novo" && <span className="badge badge-warn">Item novo</span>}
-                        {l.tipo === "removido" && <span className="badge badge-neutral">Item removido</span>}
-                        {l.estadoA && <span className="badge badge-neutral">{l.estadoA}</span>}
-                        {l.estadoA && l.estadoB && <ChevronRight size={12} />}
-                        {l.estadoB && <span className={`badge ${l.estadoB === "Bom" || l.estadoB === "Novo" ? "badge-good" : l.estadoB === "Regular" ? "badge-warn" : "badge-bad"}`}>{l.estadoB}</span>}
-                      </div>
-                      {(l.danoA || l.danoB) && (
-                        <p className="text-xs mt-1" style={{ color: "var(--bad)" }}>
-                          {l.danoA ? `Antes: ${l.danoA}` : "Sem avaria antes"} → {l.danoB ? `Agora: ${l.danoB}` : "Sem avaria agora"}
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
     </div>
   );
 }
 
-// =====================================================================
-// 🏠 AMBIENTES E ITENS
-// =====================================================================
+// ============================================================
+// COMPONENTES AUXILIARES
+// ============================================================
 
 function AmbientesTab({ inspection, locked, templateOpen, setTemplateOpen, addAmbiente, removeAmbiente, updateAmbiente, applyModel, customModels = [] }) {
   return (
@@ -1965,49 +1121,26 @@ function AmbientesTab({ inspection, locked, templateOpen, setTemplateOpen, addAm
             <div className="card absolute z-10 mt-2 p-2 w-80 shadow-lg" style={{ maxHeight: 420, overflowY: "auto" }}>
               <p className="label px-3 pt-1 pb-1.5">Ambiente único</p>
               {Object.entries(TEMPLATES).map(([nome, itens]) => (
-                <button
-                  key={nome}
-                  onClick={() => { addAmbiente(nome, itens); setTemplateOpen(false); }}
-                  className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-white/5 flex items-center justify-between"
-                  style={{ color: "var(--ink-strong)" }}
-                >
+                <button key={nome} onClick={() => { addAmbiente(nome, itens); setTemplateOpen(false); }} className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-white/5 flex items-center justify-between" style={{ color: "var(--ink-strong)" }}>
                   <span>{nome}</span>
                   <span className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{itens.length} itens</span>
                 </button>
               ))}
               <div className="divider my-1" />
-              <button
-                onClick={() => {
-                  const nome = prompt("Nome do ambiente personalizado:");
-                  if (nome && nome.trim()) { addAmbiente(nome.trim(), []); }
-                  setTemplateOpen(false);
-                }}
-                className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-white/5 flex items-center gap-2"
-                style={{ color: "var(--accent)" }}
-              >
+              <button onClick={() => { const nome = prompt("Nome do ambiente personalizado:"); if (nome && nome.trim()) { addAmbiente(nome.trim(), []); } setTemplateOpen(false); }} className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-white/5 flex items-center gap-2" style={{ color: "var(--accent)" }}>
                 <Plus size={14} /> Ambiente personalizado
               </button>
 
               <div className="divider my-1" />
               <p className="label px-3 pt-1 pb-1.5">Aplicar modelo pronto (vários ambientes)</p>
               {Object.entries(PROPERTY_MODELS).map(([key, model]) => (
-                <button
-                  key={key}
-                  onClick={() => { applyModel(key); setTemplateOpen(false); }}
-                  className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-white/5 flex items-center justify-between"
-                  style={{ color: "var(--ink-strong)" }}
-                >
+                <button key={key} onClick={() => { applyModel(key); setTemplateOpen(false); }} className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-white/5 flex items-center justify-between" style={{ color: "var(--ink-strong)" }}>
                   <span>{model.label}</span>
                   <span className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{Object.keys(model.ambientes).length} ambientes</span>
                 </button>
               ))}
               {customModels.map((model) => (
-                <button
-                  key={model.id}
-                  onClick={() => { applyModel(model); setTemplateOpen(false); }}
-                  className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-white/5 flex items-center justify-between"
-                  style={{ color: "var(--ink-strong)" }}
-                >
+                <button key={model.id} onClick={() => { applyModel(model); setTemplateOpen(false); }} className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-white/5 flex items-center justify-between" style={{ color: "var(--ink-strong)" }}>
                   <span>{model.label} <span style={{ color: "var(--ink-faint)" }}>(meu modelo)</span></span>
                   <span className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{Object.keys(model.ambientes).length} ambientes</span>
                 </button>
@@ -2020,21 +1153,12 @@ function AmbientesTab({ inspection, locked, templateOpen, setTemplateOpen, addAm
       {inspection.ambientes.length === 0 ? (
         <div className="card p-10 text-center">
           <MapPin size={30} className="mx-auto mb-2" style={{ color: "var(--ink-soft)" }} />
-          <p className="text-sm" style={{ color: "var(--ink-soft)" }}>
-            Nenhum ambiente adicionado. Use um modelo pronto ou crie um ambiente personalizado.
-          </p>
+          <p className="text-sm" style={{ color: "var(--ink-soft)" }}>Nenhum ambiente adicionado. Use um modelo pronto ou crie um ambiente personalizado.</p>
         </div>
       ) : (
         <div className="grid gap-4">
           {inspection.ambientes.map((amb, idx) => (
-            <AmbienteCard
-              key={amb.id}
-              ambiente={amb}
-              numero={idx + 1}
-              locked={locked}
-              onRemove={() => removeAmbiente(amb.id)}
-              onChange={(fn) => updateAmbiente(amb.id, fn)}
-            />
+            <AmbienteCard key={amb.id} ambiente={amb} numero={idx + 1} locked={locked} onRemove={() => removeAmbiente(amb.id)} onChange={(fn) => updateAmbiente(amb.id, fn)} />
           ))}
         </div>
       )}
@@ -2076,10 +1200,7 @@ function AmbienteCard({ ambiente, numero, locked, onRemove, onChange }) {
       <div className="flex items-center gap-2 px-4 py-3 cursor-pointer" style={{ background: "var(--card-alt)" }} onClick={() => setOpen((v) => !v)}>
         {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         {numero && (
-          <span
-            className="mono font-bold flex items-center justify-center rounded-full shrink-0"
-            style={{ width: 22, height: 22, fontSize: 11, background: "var(--accent)", color: "#F3E4E7" }}
-          >
+          <span className="mono font-bold flex items-center justify-center rounded-full shrink-0" style={{ width: 22, height: 22, fontSize: 11, background: "var(--accent)", color: "#F3E4E7" }}>
             {String(numero).padStart(2, "0")}
           </span>
         )}
@@ -2087,11 +1208,7 @@ function AmbienteCard({ ambiente, numero, locked, onRemove, onChange }) {
         <span className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{ambiente.itens.length} itens</span>
         {fotosAmbiente.length > 0 && <span className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{fotosAmbiente.length} mídia(s)</span>}
         {avariasAmb > 0 && <span className="badge badge-bad">{avariasAmb} avarias</span>}
-        {!locked && (
-          <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="btn-ghost rounded-full p-1.5">
-            <Trash2 size={13} />
-          </button>
-        )}
+        {!locked && <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="btn-ghost rounded-full p-1.5"><Trash2 size={13} /></button>}
       </div>
 
       {open && (
@@ -2100,12 +1217,7 @@ function AmbienteCard({ ambiente, numero, locked, onRemove, onChange }) {
             <p className="label mb-2">Fotos e vídeos gerais do ambiente</p>
             <div className="flex items-center gap-2 flex-wrap mb-2">
               {fotosAmbiente.map((foto, idx) => (
-                <PhotoThumb
-                  key={idx}
-                  foto={foto}
-                  onRemove={!locked ? () => removeFotoAmbiente(idx) : null}
-                  onUpdate={!locked ? (marcas) => onChange((a) => ({ ...a, fotos: (a.fotos || []).map((f, i) => (i === idx ? { ...f, marcas } : f)) })) : null}
-                />
+                <PhotoThumb key={idx} foto={foto} onRemove={!locked ? () => removeFotoAmbiente(idx) : null} onUpdate={!locked ? (marcas) => onChange((a) => ({ ...a, fotos: (a.fotos || []).map((f, i) => (i === idx ? { ...f, marcas } : f)) })) : null} />
               ))}
             </div>
             {!locked && <PhotoPicker onAdd={handleAddFotosAmbiente} small />}
@@ -2127,210 +1239,9 @@ function AmbienteCard({ ambiente, numero, locked, onRemove, onChange }) {
   );
 }
 
-// =====================================================================
-// 📝 CAMPOS TÉCNICOS E ITENS
-// =====================================================================
-
-function useFieldOptionsStore(fieldKey) {
-  const [added, setAdded] = useState([]);
-  const [removed, setRemoved] = useState([]);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    if (!fieldKey) return;
-    (async () => {
-      try {
-        const r = await storage.get(`field-opts:${fieldKey}`);
-        if (r) {
-          const data = JSON.parse(r.value);
-          setAdded(data.added || []);
-          setRemoved(data.removed || []);
-        }
-      } catch {}
-      setLoaded(true);
-    })();
-  }, [fieldKey]);
-
-  function persist(nextAdded, nextRemoved) {
-    storage.set(`field-opts:${fieldKey}`, JSON.stringify({ added: nextAdded, removed: nextRemoved })).catch(() => {});
-  }
-
-  function addOption(text) {
-    setAdded((prev) => {
-      if (prev.includes(text)) return prev;
-      const next = [...prev, text];
-      persist(next, removed);
-      return next;
-    });
-  }
-
-  function removeOption(text) {
-    setRemoved((prev) => {
-      if (prev.includes(text)) return prev;
-      const next = [...prev, text];
-      persist(added, next);
-      return next;
-    });
-    setAdded((prev) => prev.filter((o) => o !== text));
-  }
-
-  function renameOption(oldText, newText) {
-    const clean = newText.trim();
-    if (!clean || clean === oldText) return;
-    const nextRemoved = removed.includes(oldText) ? removed : [...removed, oldText];
-    const nextAdded = [...added.filter((o) => o !== oldText), clean];
-    setRemoved(nextRemoved);
-    setAdded(nextAdded);
-    persist(nextAdded, nextRemoved);
-  }
-
-  return { added, removed, addOption, removeOption, renameOption, loaded };
-}
-
-function TechFieldPicker({ fieldKey, label, value, options, disabled, onChange }) {
-  const [expanded, setExpanded] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-  const [addModalOpen, setAddModalOpen] = useState(false);
-  const [renameTarget, setRenameTarget] = useState(null);
-  const { added, removed, addOption, removeOption, renameOption } = useFieldOptionsStore(fieldKey);
-
-  const allOptions = [...(options || []).filter((o) => !removed.includes(o)), ...added];
-
-  function handleAddOption(e) {
-    e.stopPropagation();
-    setAddModalOpen(true);
-  }
-
-  function submitAddOption(texto) {
-    addOption(texto);
-    setAddModalOpen(false);
-    setExpanded(true);
-  }
-
-  function submitRenameOption(texto) {
-    if (texto !== renameTarget) {
-      renameOption(renameTarget, texto);
-      if (value === renameTarget) onChange(texto);
-    }
-    setRenameTarget(null);
-  }
-
-  return (
-    <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
-      <div className="flex items-center justify-between gap-2 px-3 pt-2.5" style={{ minHeight: 30 }}>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => setExpanded((v) => !v)}
-          className="flex items-center gap-2 text-left min-w-0"
-        >
-          {!disabled && <ChevronDown size={13} className={expanded ? "rotate-180" : ""} style={{ color: "var(--accent)", flexShrink: 0 }} />}
-          <span className="text-xs font-bold uppercase tracking-wide truncate" style={{ color: "var(--field-label)" }}>Detalhes {label}</span>
-        </button>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {!disabled && allOptions.length > 0 && (
-            <button type="button" onClick={(e) => { e.stopPropagation(); setEditMode((v) => !v); }} className="btn-ghost rounded-full p-1" title="Editar opções">
-              <Pencil size={11} />
-            </button>
-          )}
-          {!disabled && (
-            <button type="button" onClick={handleAddOption} className="btn-secondary rounded-full px-2.5 py-1 text-[11px] font-semibold flex items-center gap-1">
-              <Plus size={11} /> Adicionar
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="px-3 pb-2.5 pt-1">
-        {value ? (
-          <p className="text-xs">
-            <span style={{ color: "var(--ink-soft)" }}>Valor: </span>
-            <span className="font-semibold" style={{ color: "var(--ink-strong)" }}>{value}</span>
-          </p>
-        ) : (
-          <p className="text-xs" style={{ color: "var(--ink-faint)" }}>Nenhum valor selecionado</p>
-        )}
-      </div>
-      {expanded && !disabled && (
-        <div className="px-3 pb-3">
-          {allOptions.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {allOptions.map((o) => (
-                <div key={o} className="relative">
-                  <button
-                    type="button"
-                    onClick={() => { if (editMode) { setRenameTarget(o); } else { onChange(o); setExpanded(false); } }}
-                    className={`estado-btn px-2.5 py-1.5 text-xs ${value === o ? "active-Bom" : ""}`}
-                    style={editMode ? { paddingRight: 20 } : undefined}
-                  >
-                    {o}
-                    {editMode && <Pencil size={9} className="inline-block ml-1" style={{ verticalAlign: "middle" }} />}
-                  </button>
-                  {editMode && (
-                    <button
-                      type="button"
-                      onClick={() => { removeOption(o); if (value === o) onChange(""); }}
-                      className="absolute rounded-full flex items-center justify-center"
-                      style={{ top: -5, right: -5, width: 16, height: 16, background: "var(--bad)", color: "#fff" }}
-                    >
-                      <X size={9} />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-          <input
-            className="input w-full px-3 py-1.5 text-xs"
-            placeholder="Ou digite outro valor..."
-            value={value || ""}
-            onChange={(e) => onChange(e.target.value)}
-          />
-        </div>
-      )}
-
-      {addModalOpen && (
-        <PromptModal
-          title={`Nova opção para ${label}`}
-          placeholder="Digite a nova opção..."
-          confirmLabel="Adicionar"
-          onSubmit={submitAddOption}
-          onCancel={() => setAddModalOpen(false)}
-        />
-      )}
-      {renameTarget && (
-        <PromptModal
-          title="Editar opção"
-          defaultValue={renameTarget}
-          confirmLabel="Salvar"
-          onSubmit={submitRenameOption}
-          onCancel={() => setRenameTarget(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-function QuantityStepper({ label, value, disabled, onChange }) {
-  const n = value === "" || value === undefined || value === null ? 0 : Number(value) || 0;
-
-  function set(next) {
-    onChange(String(Math.max(0, next)));
-  }
-
-  return (
-    <div className="rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 flex-wrap" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
-      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--ink-strong)" }}>{label}</span>
-      <div className="flex items-center gap-2">
-        {!disabled && n !== 0 && (
-          <button type="button" onClick={() => set(0)} className="btn-ghost rounded-full px-2 py-0.5 text-[10px]" title="Zerar (nenhum)">0 / Nenhum</button>
-        )}
-        <button type="button" disabled={disabled || n <= 0} onClick={() => set(n - 1)} className="btn-ghost rounded-full flex items-center justify-center" style={{ width: 26, height: 26 }}>−</button>
-        <span className="text-sm font-semibold mono" style={{ minWidth: 22, textAlign: "center", color: "var(--ink-strong)" }}>{n}</span>
-        <button type="button" disabled={disabled} onClick={() => set(n + 1)} className="btn-ghost rounded-full flex items-center justify-center" style={{ width: 26, height: 26 }}>+</button>
-      </div>
-    </div>
-  );
-}
+// ============================================================
+// ITENS, MEDIDORES, CHAVES E PARECER
+// ============================================================
 
 function ItemRow({ item, locked, onChange, onRemove }) {
   const [open, setOpen] = useState(false);
@@ -2346,24 +1257,20 @@ function ItemRow({ item, locked, onChange, onRemove }) {
     const photos = await filesToPhotos(files);
     onChange((it) => ({ ...it, fotos: [...it.fotos, ...photos] }));
   }
+
   function removePhoto(idx) {
     onChange((it) => ({ ...it, fotos: it.fotos.filter((_, i) => i !== idx) }));
   }
+
   return (
     <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid var(--line)", background: "var(--card-alt)" }}>
       <div className="flex items-center gap-2 px-4 py-3 cursor-pointer" onClick={() => setOpen((v) => !v)}>
         {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
         <span className="font-semibold text-sm flex-1" style={{ color: "var(--item-name)" }}>{item.nome}</span>
-        <span className={`badge ${item.semTeste ? "badge-neutral" : estadoLabel === "Bom" || estadoLabel === "Novo" ? "badge-good" : estadoLabel === "Regular" ? "badge-warn" : estadoLabel === "Péssimo" ? "badge-worse" : "badge-bad"}`}>
-          {estadoLabel}
-        </span>
+        <span className={`badge ${item.semTeste ? "badge-neutral" : estadoLabel === "Bom" || estadoLabel === "Novo" ? "badge-good" : estadoLabel === "Regular" ? "badge-warn" : estadoLabel === "Péssimo" ? "badge-worse" : "badge-bad"}`}>{estadoLabel}</span>
         {item.temDano && <AlertTriangle size={14} style={{ color: "var(--bad)" }} />}
         {item.fotos.length > 0 && <span className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{item.fotos.length} mídia(s)</span>}
-        {!locked && (
-          <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="btn-ghost rounded-full p-1.5">
-            <Trash2 size={13} />
-          </button>
-        )}
+        {!locked && <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="btn-ghost rounded-full p-1.5"><Trash2 size={13} /></button>}
       </div>
 
       {!open && camposPreenchidos > 0 && (
@@ -2376,22 +1283,13 @@ function ItemRow({ item, locked, onChange, onRemove }) {
         <div className="px-4 pb-4">
           <div className="flex gap-2 flex-wrap mb-2">
             {ESTADOS.map((e) => (
-              <button
-                key={e}
-                disabled={locked}
-                onClick={() => onChange((it) => ({ ...it, estado: e, semTeste: false }))}
-                className={`estado-btn px-4 py-2 ${!item.semTeste && item.estado === e ? `active-${e}` : ""}`}
-              >
+              <button key={e} disabled={locked} onClick={() => onChange((it) => ({ ...it, estado: e, semTeste: false }))} className={`estado-btn px-4 py-2 ${!item.semTeste && item.estado === e ? `active-${e}` : ""}`}>
                 {e}
               </button>
             ))}
           </div>
           <div className="flex gap-2 flex-wrap mb-3">
-            <button
-              disabled={locked}
-              onClick={() => onChange((it) => ({ ...it, semTeste: !it.semTeste }))}
-              className={`estado-btn px-4 py-2 ${item.semTeste ? "active-semteste" : ""}`}
-            >
+            <button disabled={locked} onClick={() => onChange((it) => ({ ...it, semTeste: !it.semTeste }))} className={`estado-btn px-4 py-2 ${item.semTeste ? "active-semteste" : ""}`}>
               Sem teste
             </button>
           </div>
@@ -2399,54 +1297,22 @@ function ItemRow({ item, locked, onChange, onRemove }) {
           <div className="grid gap-2 mb-2">
             {visibleFields.map((f) =>
               f.type === "number" ? (
-                <QuantityStepper
-                  key={f.key}
-                  label={f.label}
-                  value={campos[f.key]}
-                  disabled={locked}
-                  onChange={(val) => onChange((it) => ({ ...it, campos: { ...(it.campos || {}), [f.key]: val } }))}
-                />
+                <QuantityStepper key={f.key} label={f.label} value={campos[f.key]} disabled={locked} onChange={(val) => onChange((it) => ({ ...it, campos: { ...(it.campos || {}), [f.key]: val } }))} />
               ) : (
-                <TechFieldPicker
-                  key={f.key}
-                  fieldKey={f.key}
-                  label={f.label}
-                  value={campos[f.key]}
-                  // @ts-ignore
-                  options={FIELD_OPTIONS[f.key]} 
-                  disabled={locked}
-                  // @ts-ignore
-                  onChange={(val) => onChange((it) => ({ ...it, campos: { ...(it.campos || {}), [f.key]: val } }))}
-                />
+                <TechFieldPicker key={f.key} fieldKey={f.key} label={f.label} value={campos[f.key]} options={FIELD_OPTIONS[f.key]} disabled={locked} onChange={(val) => onChange((it) => ({ ...it, campos: { ...(it.campos || {}), [f.key]: val } }))} />
               )
             )}
           </div>
           {!locked && hiddenCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowAllFields((v) => !v)}
-              className="btn-ghost rounded-full px-3 py-1.5 text-xs mb-3 flex items-center gap-1.5"
-            >
+            <button type="button" onClick={() => setShowAllFields((v) => !v)} className="btn-ghost rounded-full px-3 py-1.5 text-xs mb-3 flex items-center gap-1.5">
               {showAllFields ? <><ChevronDown size={12} className="rotate-180" /> Mostrar só os campos relevantes</> : <><Plus size={12} /> Mostrar mais {hiddenCount} campo(s)</>}
             </button>
           )}
-{/* @ts-ignore */}
-          <TextAreaWithDictation
-            disabled={locked}
-            className="px-4 py-2.5"
-            rows={2}
-            placeholder="Observação..."
-            value={item.observacoes}
-            onChange={(val) => onChange((it) => ({ ...it, observacoes: val }))}
-          />
+
+          <TextAreaWithDictation disabled={locked} className="px-4 py-2.5" rows={2} placeholder="Observação..." value={item.observacoes} onChange={(val) => onChange((it) => ({ ...it, observacoes: val }))} />
 
           <label className="flex items-center gap-2 mt-3 text-sm cursor-pointer select-none">
-            <input
-              type="checkbox"
-              disabled={locked}
-              checked={item.temDano}
-              onChange={(e) => onChange((it) => ({ ...it, temDano: e.target.checked }))}
-            />
+            <input type="checkbox" disabled={locked} checked={item.temDano} onChange={(e) => onChange((it) => ({ ...it, temDano: e.target.checked }))} />
             <span className="flex items-center gap-1" style={{ color: item.temDano ? "var(--bad)" : "var(--ink-soft)" }}>
               <AlertTriangle size={13} /> Registrar avaria
             </span>
@@ -2454,26 +1320,13 @@ function ItemRow({ item, locked, onChange, onRemove }) {
 
           {item.temDano && (
             <div className="mt-2">
-              <TextAreaWithDictation
-                disabled={locked}
-                className="px-4 py-2.5"
-                rows={2}
-                placeholder="Descreva a avaria encontrada..."
-                style={{ borderColor: "var(--bad)" }}
-                value={item.descricaoDano}
-                onChange={(val) => onChange((it) => ({ ...it, descricaoDano: val }))}
-              />
+              <TextAreaWithDictation disabled={locked} className="px-4 py-2.5" rows={2} placeholder="Descreva a avaria encontrada..." style={{ borderColor: "var(--bad)" }} value={item.descricaoDano} onChange={(val) => onChange((it) => ({ ...it, descricaoDano: val }))} />
             </div>
           )}
 
           <div className="flex items-center gap-2 mt-3 flex-wrap">
             {item.fotos.map((foto, idx) => (
-              <PhotoThumb
-                key={idx}
-                foto={foto}
-                onRemove={!locked ? () => removePhoto(idx) : null}
-                onUpdate={!locked ? (marcas) => onChange((it) => ({ ...it, fotos: it.fotos.map((f, i) => (i === idx ? { ...f, marcas } : f)) })) : null}
-              />
+              <PhotoThumb key={idx} foto={foto} onRemove={!locked ? () => removePhoto(idx) : null} onUpdate={!locked ? (marcas) => onChange((it) => ({ ...it, fotos: it.fotos.map((f, i) => (i === idx ? { ...f, marcas } : f)) })) : null} />
             ))}
           </div>
           {!locked && <div className="mt-2"><PhotoPicker onAdd={handleAddPhotos} small /></div>}
@@ -2483,9 +1336,9 @@ function ItemRow({ item, locked, onChange, onRemove }) {
   );
 }
 
-// =====================================================================
-// 💧 MEDIDORES E CHAVES
-// =====================================================================
+// ============================================================
+// MEDIDORES, CHAVES E PARECER
+// ============================================================
 
 function MedidorCard({ icon, title, data, locked, opcional, unidades, onChange }) {
   const ativo = data.ativo;
@@ -2507,12 +1360,7 @@ function MedidorCard({ icon, title, data, locked, opcional, unidades, onChange }
         </h3>
         {opcional && (
           <label className="flex items-center gap-2 text-xs cursor-pointer select-none" style={{ color: "var(--ink-soft)" }}>
-            <input
-              type="checkbox"
-              disabled={locked}
-              checked={ativo}
-              onChange={(e) => onChange((d) => ({ ...d, ativo: e.target.checked }))}
-            />
+            <input type="checkbox" disabled={locked} checked={ativo} onChange={(e) => onChange((d) => ({ ...d, ativo: e.target.checked }))} />
             Este imóvel possui
           </label>
         )}
@@ -2543,23 +1391,10 @@ function MedidorCard({ icon, title, data, locked, opcional, unidades, onChange }
               <input disabled={locked} className="input w-full px-4 py-2 text-sm" placeholder="Ex: Sabesp, Enel, Comgás..." value={data.concessionaria || ""} onChange={(e) => onChange((d) => ({ ...d, concessionaria: e.target.value }))} />
             </div>
           </div>
-          <TextAreaWithDictation
-            disabled={locked}
-            className="px-4 py-2.5 mb-3"
-            rows={2}
-            placeholder="Observação..."
-            value={data.observacoes}
-            onChange={(val) => onChange((d) => ({ ...d, observacoes: val }))}
-          />
+          <TextAreaWithDictation disabled={locked} className="px-4 py-2.5 mb-3" rows={2} placeholder="Observação..." value={data.observacoes} onChange={(val) => onChange((d) => ({ ...d, observacoes: val }))} />
           <div className="flex items-center gap-2 flex-wrap mb-2">
             {data.fotos.map((foto, idx) => (
-              <PhotoThumb
-                key={idx}
-                foto={foto}
-                size={56}
-                onRemove={!locked ? () => removePhoto(idx) : null}
-                onUpdate={!locked ? (marcas) => onChange((d) => ({ ...d, fotos: d.fotos.map((f, i) => (i === idx ? { ...f, marcas } : f)) })) : null}
-              />
+              <PhotoThumb key={idx} foto={foto} size={56} onRemove={!locked ? () => removePhoto(idx) : null} onUpdate={!locked ? (marcas) => onChange((d) => ({ ...d, fotos: d.fotos.map((f, i) => (i === idx ? { ...f, marcas } : f)) })) : null} />
             ))}
           </div>
           {!locked && <PhotoPicker onAdd={handleAddPhotos} small />}
@@ -2611,13 +1446,7 @@ function ChaveRow({ label, data, locked, onChange, onRemove }) {
       )}
       <div className="w-full flex items-center gap-2 flex-wrap">
         {fotos.map((foto, idx) => (
-          <PhotoThumb
-            key={idx}
-            foto={foto}
-            size={50}
-            onRemove={!locked ? () => removePhoto(idx) : null}
-            onUpdate={!locked ? (marcas) => onChange((d) => ({ ...d, fotos: (d.fotos || []).map((f, i) => (i === idx ? { ...f, marcas } : f)) })) : null}
-          />
+          <PhotoThumb key={idx} foto={foto} size={50} onRemove={!locked ? () => removePhoto(idx) : null} onUpdate={!locked ? (marcas) => onChange((d) => ({ ...d, fotos: (d.fotos || []).map((f, i) => (i === idx ? { ...f, marcas } : f)) })) : null} />
         ))}
         {!locked && <PhotoPicker onAdd={handleAddPhotos} small />}
       </div>
@@ -2643,26 +1472,11 @@ function ChavesTab({ chaves, locked, onChange }) {
   return (
     <div className="grid gap-3">
       {CHAVE_TIPOS.map((t) => (
-        <ChaveRow
-          key={t.key}
-          label={t.label}
-          data={chaves[t.key]}
-          locked={locked}
-          onChange={(fn) => onChange((c) => ({ ...c, [t.key]: fn(c[t.key]) }))}
-        />
+        <ChaveRow key={t.key} label={t.label} data={chaves[t.key]} locked={locked} onChange={(fn) => onChange((c) => ({ ...c, [t.key]: fn(c[t.key]) }))} />
       ))}
-
       {chaves.outras.map((o) => (
-        <ChaveRow
-          key={o.id}
-          label={o.nome}
-          data={o}
-          locked={locked}
-          onChange={(fn) => updateOutra(o.id, fn)}
-          onRemove={() => removeOutra(o.id)}
-        />
+        <ChaveRow key={o.id} label={o.nome} data={o} locked={locked} onChange={(fn) => updateOutra(o.id, fn)} onRemove={() => removeOutra(o.id)} />
       ))}
-
       {!locked && (
         <button onClick={addOutra} className="btn-ghost rounded-full px-4 py-2.5 text-sm flex items-center gap-2 w-fit">
           <Plus size={14} /> Outras chaves
@@ -2671,10 +1485,6 @@ function ChavesTab({ chaves, locked, onChange }) {
     </div>
   );
 }
-
-// =====================================================================
-// 📄 PARECER TÉCNICO
-// =====================================================================
 
 function ParecerTecnicoTab({ parecerTecnico, locked, onChange }) {
   const fileRef = useRef(null);
@@ -2705,25 +1515,12 @@ function ParecerTecnicoTab({ parecerTecnico, locked, onChange }) {
     <div className="grid gap-4">
       <div className="card p-5">
         <h3 className="display text-sm font-bold mb-1 flex items-center gap-2"><FileText size={15} /> Parecer técnico</h3>
-        <p className="text-xs mb-3" style={{ color: "var(--ink-soft)" }}>
-          Escreva uma avaliação técnica geral do imóvel — conclusões, recomendações ou observações que não se encaixam em um item específico.
-        </p>
-        <TextAreaWithDictation
-          disabled={locked}
-          className="px-4 py-2.5"
-          rows={6}
-          placeholder="Escreva aqui o parecer técnico da vistoria..."
-          value={parecerTecnico?.texto || ""}
-          onChange={(val) => onChange((p) => ({ ...p, texto: val }))}
-        />
+        <p className="text-xs mb-3" style={{ color: "var(--ink-soft)" }}>Escreva uma avaliação técnica geral do imóvel — conclusões, recomendações ou observações que não se encaixam em um item específico.</p>
+        <TextAreaWithDictation disabled={locked} className="px-4 py-2.5" rows={6} placeholder="Escreva aqui o parecer técnico da vistoria..." value={parecerTecnico?.texto || ""} onChange={(val) => onChange((p) => ({ ...p, texto: val }))} />
       </div>
-
       <div className="card p-5">
         <h3 className="display text-sm font-bold mb-1 flex items-center gap-2"><Upload size={15} /> Anexos</h3>
-        <p className="text-xs mb-3" style={{ color: "var(--ink-soft)" }}>
-          Anexe qualquer tipo de arquivo — laudos anteriores, plantas, orçamentos, PDFs, planilhas, etc.
-        </p>
-
+        <p className="text-xs mb-3" style={{ color: "var(--ink-soft)" }}>Anexe qualquer tipo de arquivo — laudos anteriores, plantas, orçamentos, PDFs, planilhas, etc.</p>
         {anexos.length > 0 && (
           <div className="grid gap-2 mb-3">
             {anexos.map((a) => (
@@ -2742,7 +1539,6 @@ function ParecerTecnicoTab({ parecerTecnico, locked, onChange }) {
             ))}
           </div>
         )}
-
         {!locked && (
           <>
             <button onClick={() => fileRef.current?.click()} className="btn-ghost rounded-full px-4 py-2.5 text-sm flex items-center gap-2 w-fit">
@@ -2756,9 +1552,9 @@ function ParecerTecnicoTab({ parecerTecnico, locked, onChange }) {
   );
 }
 
-// =====================================================================
-// ✍️ ASSINATURAS (SignaturePad e AssinaturaTab) - CORRIGIDO
-// =====================================================================
+// ============================================================
+// ASSINATURAS
+// ============================================================
 
 function SignaturePad({ label, value, onSave, locked }) {
   const canvasRef = useRef(null);
@@ -2821,11 +1617,7 @@ function SignaturePad({ label, value, onSave, locked }) {
       <div className="flex items-center justify-between mb-1.5">
         <p className="label flex items-center gap-1.5"><PenLine size={12} /> {label}</p>
         {!locked && !empty && (
-          <button 
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); clear(); }}
-            className="btn-ghost rounded-full px-2.5 py-1 text-xs no-print flex"
-            type="button"
-          >
+          <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); clear(); }} className="btn-ghost rounded-full px-2.5 py-1 text-xs no-print flex" type="button">
             <RotateCcw size={11} /> Refazer
           </button>
         )}
@@ -2874,135 +1666,56 @@ function AssinaturaTab({ inspection, locked, onUpdate }) {
   return (
     <div className="card p-5">
       <h3 className="display text-sm font-bold mb-1 flex items-center gap-2"><PenLine size={15} /> Assinatura digital</h3>
-      <p className="text-xs mb-4" style={{ color: "var(--ink-soft)" }}>
-        Vistoriador, locador e locatário podem assinar direto na tela — com o dedo ou o mouse. Se preferir, deixe em branco para assinar à caneta depois de imprimir.
-      </p>
+      <p className="text-xs mb-4" style={{ color: "var(--ink-soft)" }}>Vistoriador, locador e locatário podem assinar direto na tela — com o dedo ou o mouse. Se preferir, deixe em branco para assinar à caneta depois de imprimir.</p>
 
-      {/* ---------- 1. VISTORIADOR ---------- */}
+      {/* VISTORIADOR */}
       <div className="border rounded-lg p-3 bg-white mb-4">
         <p className="text-sm font-medium mb-2">Assinatura do vistoriador</p>
-        <SignaturePad
-          label="Assinatura do vistoriador"
-          value={inspection.signatures?.vistoriador}
-          locked={locked || inspection.signatures?.vistoriadorSalva}
-          onSave={(dataUrl) => { window._assinaturaTempVistoriador = dataUrl; }}
-        />
+        <SignaturePad label="Assinatura do vistoriador" value={inspection.signatures?.vistoriador} locked={locked || inspection.signatures?.vistoriadorSalva} onSave={(dataUrl) => { window._assinaturaTempVistoriador = dataUrl; }} />
         <div className="flex gap-2 mt-2 flex-wrap">
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              const dados = window._assinaturaTempVistoriador;
-              if (dados) { onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, vistoriador: dados, vistoriadorSalva: true } })); }
-            }}
-            type="button"
-            className="btn-primary px-3 py-1.5 text-sm rounded"
-          >💾 Salvar</button>
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, vistoriador: null, vistoriadorSalva: false } }));
-            }}
-            type="button"
-            className="btn-ghost px-3 py-1.5 text-sm rounded text-red-600"
-          >🗑️ Limpar</button>
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, vistoriadorSalva: false } }));
-            }}
-            type="button"
-            className="btn-ghost px-3 py-1.5 text-sm rounded"
-          >✏️ Editar</button>
+          <button onClick={(e) => { e.preventDefault(); const dados = window._assinaturaTempVistoriador; if (dados) { onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, vistoriador: dados, vistoriadorSalva: true } })); } }} type="button" className="btn-primary px-3 py-1.5 text-sm rounded">💾 Salvar</button>
+          <button onClick={(e) => { e.preventDefault(); onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, vistoriador: null, vistoriadorSalva: false } })); }} type="button" className="btn-ghost px-3 py-1.5 text-sm rounded text-red-600">🗑️ Limpar</button>
+          <button onClick={(e) => { e.preventDefault(); onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, vistoriadorSalva: false } })); }} type="button" className="btn-ghost px-3 py-1.5 text-sm rounded">✏️ Editar</button>
         </div>
       </div>
 
-      {/* ---------- 2. LOCADOR ---------- */}
+      {/* LOCADOR */}
       <div className="border rounded-lg p-3 bg-white mb-4">
         <p className="text-sm font-medium mb-2">Assinatura do locador</p>
-        <SignaturePad
-          label="Assinatura do locador"
-          value={inspection.signatures?.locador}
-          locked={locked || inspection.signatures?.locadorSalva}
-          onSave={(dataUrl) => { window._assinaturaTempLocador = dataUrl; }}
-        />
+        <SignaturePad label="Assinatura do locador" value={inspection.signatures?.locador} locked={locked || inspection.signatures?.locadorSalva} onSave={(dataUrl) => { window._assinaturaTempLocador = dataUrl; }} />
         <div className="flex gap-2 mt-2 flex-wrap">
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              const dados = window._assinaturaTempLocador;
-              if (dados) { onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locador: dados, locadorSalva: true } })); }
-            }}
-            type="button"
-            className="btn-primary px-3 py-1.5 text-sm rounded"
-          >💾 Salvar</button>
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locador: null, locadorSalva: false } }));
-            }}
-            type="button"
-            className="btn-ghost px-3 py-1.5 text-sm rounded text-red-600"
-          >🗑️ Limpar</button>
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locadorSalva: false } }));
-            }}
-            type="button"
-            className="btn-ghost px-3 py-1.5 text-sm rounded"
-          >✏️ Editar</button>
+          <button onClick={(e) => { e.preventDefault(); const dados = window._assinaturaTempLocador; if (dados) { onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locador: dados, locadorSalva: true } })); } }} type="button" className="btn-primary px-3 py-1.5 text-sm rounded">💾 Salvar</button>
+          <button onClick={(e) => { e.preventDefault(); onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locador: null, locadorSalva: false } })); }} type="button" className="btn-ghost px-3 py-1.5 text-sm rounded text-red-600">🗑️ Limpar</button>
+          <button onClick={(e) => { e.preventDefault(); onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locadorSalva: false } })); }} type="button" className="btn-ghost px-3 py-1.5 text-sm rounded">✏️ Editar</button>
         </div>
       </div>
 
-      {/* ---------- 3. LOCATÁRIO ---------- */}
+      {/* LOCATÁRIO */}
       <div className="border rounded-lg p-3 bg-white">
         <p className="text-sm font-medium mb-2">Assinatura do locatário</p>
-        <SignaturePad
-          label="Assinatura do locatário"
-          value={inspection.signatures?.locatario}
-          locked={locked || inspection.signatures?.locatarioSalva}
-          onSave={(dataUrl) => { window._assinaturaTempLocatario = dataUrl; }}
-        />
+        <SignaturePad label="Assinatura do locatário" value={inspection.signatures?.locatario} locked={locked || inspection.signatures?.locatarioSalva} onSave={(dataUrl) => { window._assinaturaTempLocatario = dataUrl; }} />
         <div className="flex gap-2 mt-2 flex-wrap">
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              const dados = window._assinaturaTempLocatario;
-              if (dados) { onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locatario: dados, locatarioSalva: true } })); }
-            }}
-            type="button"
-            className="btn-primary px-3 py-1.5 text-sm rounded"
-          >💾 Salvar</button>
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locatario: null, locatarioSalva: false } }));
-            }}
-            type="button"
-            className="btn-ghost px-3 py-1.5 text-sm rounded text-red-600"
-          >🗑️ Limpar</button>
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locatarioSalva: false } }));
-            }}
-            type="button"
-            className="btn-ghost px-3 py-1.5 text-sm rounded"
-          >✏️ Editar</button>
+          <button onClick={(e) => { e.preventDefault(); const dados = window._assinaturaTempLocatario; if (dados) { onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locatario: dados, locatarioSalva: true } })); } }} type="button" className="btn-primary px-3 py-1.5 text-sm rounded">💾 Salvar</button>
+          <button onClick={(e) => { e.preventDefault(); onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locatario: null, locatarioSalva: false } })); }} type="button" className="btn-ghost px-3 py-1.5 text-sm rounded text-red-600">🗑️ Limpar</button>
+          <button onClick={(e) => { e.preventDefault(); onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locatarioSalva: false } })); }} type="button" className="btn-ghost px-3 py-1.5 text-sm rounded">✏️ Editar</button>
         </div>
       </div>
     </div>
   );
 }
 
-// =====================================================================
-// 🖨️ RELATÓRIO E GERAÇÃO DE PDF
-// =====================================================================
+// ============================================================
+// RELATÓRIO E PDF
+// ============================================================
 
 function mediaHtml(foto) {
   const cap = foto.date ? `<p style="font-size:10px;color:#a8828a;margin:5px 0 0;font-family:'JetBrains Mono',monospace">${escapeHtml(fmtDateTime(foto.date))}</p>` : "";
-  if (foto.type === "video") return `<div class="media-card"><video src="${foto.src}" controls style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:#000;display:block"></video><div style="padding:6px 8px">${cap || '<span style="font-size:10px;color:#a8828a">Vídeo</span>'}</div></div>`;
-  if (foto.type === "audio") return `<div class="media-card" style="width:180px"><div style="padding:10px 10px 4px"><audio src="${foto.src}" controls style="width:100%"></audio></div><div style="padding:0 10px 8px">${cap || '<span style="font-size:10px;color:#a8828a">Áudio</span>'}</div></div>`;
+  if (foto.type === "video") {
+    return `<div class="media-card"><video src="${foto.src}" controls style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:#000;display:block"></video><div style="padding:6px 8px">${cap || '<span style="font-size:10px;color:#a8828a">Vídeo</span>'}</div></div>`;
+  }
+  if (foto.type === "audio") {
+    return `<div class="media-card" style="width:180px"><div style="padding:10px 10px 4px"><audio src="${foto.src}" controls style="width:100%"></audio></div><div style="padding:0 10px 8px">${cap || '<span style="font-size:10px;color:#a8828a">Áudio</span>'}</div></div>`;
+  }
   const marcas = foto.marcas || null;
   const pontos = Array.isArray(marcas) ? marcas : (marcas?.points || []);
   const comentarioMarcacao = Array.isArray(marcas) ? "" : (marcas?.comentario || "");
@@ -3015,33 +1728,93 @@ function buildReportHTML(inspection, logo) {
   const totalItens = inspection.ambientes.reduce((a, amb) => a + amb.itens.length, 0);
   const avarias = inspection.ambientes.reduce((a, amb) => a + amb.itens.filter((it) => it.temDano).length, 0);
 
-  const medidoresList = [{ label: "Água", d: inspection.medidores.agua }, { label: "Energia", d: inspection.medidores.energia }, { label: "Gás", d: inspection.medidores.gas }].filter((m) => m.d.ativo);
-  const chavesList = [...CHAVE_TIPOS.map((t) => ({ label: t.label, ...inspection.chaves[t.key] })), ...inspection.chaves.outras.map((o) => ({ label: o.nome, ...o }))].filter((c) => c.quantidade || c.observacoes || (c.fotos || []).length);
+  const medidoresList = [
+    { label: "Água", d: inspection.medidores.agua },
+    { label: "Energia", d: inspection.medidores.energia },
+    { label: "Gás", d: inspection.medidores.gas },
+  ].filter((m) => m.d.ativo);
 
-  const estadoColors = { "Novo": ["#e5f6ec", "#2e8f57"], "Bom": ["#e5f6ec", "#2e8f57"], "Regular": ["#fdf1dc", "#a97a1f"], "Ruim": ["#fbe4e1", "#b23e2a"], "Péssimo": ["#f5d9dd", "#8e2e3d"], "Sem teste": ["#eef0f2", "#6b7280"] };
+  const chavesList = [
+    ...CHAVE_TIPOS.map((t) => ({ label: t.label, ...inspection.chaves[t.key] })),
+    ...inspection.chaves.outras.map((o) => ({ label: o.nome, ...o })),
+  ].filter((c) => c.quantidade || c.observacoes || (c.fotos || []).length);
+
+  const estadoColors = {
+    "Novo": ["#e5f6ec", "#2e8f57"], "Bom": ["#e5f6ec", "#2e8f57"],
+    "Regular": ["#fdf1dc", "#a97a1f"], "Ruim": ["#fbe4e1", "#b23e2a"],
+    "Péssimo": ["#f5d9dd", "#8e2e3d"], "Sem teste": ["#eef0f2", "#6b7280"],
+  };
 
   const ambientesHtml = inspection.ambientes.map((amb, ambIdx) => {
-    const fotosAmbienteHtml = (amb.fotos || []).length ? `<div style="margin-bottom:14px"><p class="eyebrow">Fotos/vídeos gerais do ambiente</p><div class="media-grid">${amb.fotos.map(mediaHtml).join("")}</div></div>` : "";
+    const fotosAmbienteHtml = (amb.fotos || []).length
+      ? `<div style="margin-bottom:14px"><p class="eyebrow">Fotos/vídeos gerais do ambiente</p><div class="media-grid">${amb.fotos.map(mediaHtml).join("")}</div></div>` : "";
     const itensHtml = amb.itens.map((item) => {
       const camposPreenchidos = ITEM_FIELD_DEFS.filter((f) => (item.campos || {})[f.key]);
       const estadoLabel = item.semTeste ? "Sem teste" : item.estado;
       const [bg, fg] = estadoColors[estadoLabel] || estadoColors["Sem teste"];
-      const camposLine = camposPreenchidos.length ? `<p class="meta-line">${camposPreenchidos.map((f) => `<strong>${f.label}:</strong> ${escapeHtml(item.campos[f.key])}`).join(" &nbsp;·&nbsp; ")}</p>` : "";
+      const camposLine = camposPreenchidos.length
+        ? `<p class="meta-line">${camposPreenchidos.map((f) => `<strong>${f.label}:</strong> ${escapeHtml(item.campos[f.key])}`).join(" &nbsp;·&nbsp; ")}</p>` : "";
       const obsLine = item.observacoes ? `<p class="obs-line">${escapeHtml(item.observacoes)}</p>` : "";
       const danoLine = item.temDano && item.descricaoDano ? `<p class="dano-line">⚠ Avaria: ${escapeHtml(item.descricaoDano)}</p>` : "";
       const fotosHtml = (item.fotos || []).length ? `<div class="media-grid" style="margin-top:8px">${item.fotos.map(mediaHtml).join("")}</div>` : "";
-      return `<div class="item-card"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><strong style="font-size:14px">${escapeHtml(item.nome)}</strong><span class="pill" style="background:${bg};color:${fg}">${escapeHtml(estadoLabel)}</span>${item.temDano ? `<span class="pill" style="background:#fbe4e1;color:#b23e2a">Avaria</span>` : ""}</div>${camposLine}${obsLine}${danoLine}${fotosHtml}</div>`;
+      return `
+        <div class="item-card">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+            <strong style="font-size:14px">${escapeHtml(item.nome)}</strong>
+            <span class="pill" style="background:${bg};color:${fg}">${escapeHtml(estadoLabel)}</span>
+            ${item.temDano ? `<span class="pill" style="background:#fbe4e1;color:#b23e2a">Avaria</span>` : ""}
+          </div>
+          ${camposLine}${obsLine}${danoLine}${fotosHtml}
+        </div>`;
     }).join("");
-    return `<div class="section-card"><h2 class="section-title"><span class="section-num">${String(ambIdx + 1).padStart(2, "0")}</span>${escapeHtml(amb.nome)}</h2>${fotosAmbienteHtml}${itensHtml}</div>`;
+    return `
+      <div class="section-card">
+        <h2 class="section-title"><span class="section-num">${String(ambIdx + 1).padStart(2, "0")}</span>${escapeHtml(amb.nome)}</h2>
+        ${fotosAmbienteHtml}
+        ${itensHtml}
+      </div>`;
   }).join("");
 
-  const medidoresHtml = medidoresList.length ? `<div class="section-card"><h2 class="section-title"><span class="section-num" style="background:#3d7a57">💧</span>Medidores</h2>${medidoresList.map((m) => `<div class="item-card"><strong style="font-size:14px">${m.label}</strong><p class="meta-line">${[m.d.numero && `<strong>Nº:</strong> ${m.d.numero}`, m.d.leitura && `<strong>Leitura:</strong> ${m.d.leitura}${m.d.unidade ? " " + m.d.unidade : ""}`, m.d.concessionaria && `<strong>Concessionária:</strong> ${m.d.concessionaria}`].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>${m.d.observacoes ? `<p class="obs-line">${escapeHtml(m.d.observacoes)}</p>` : ""}${(m.d.fotos || []).length ? `<div class="media-grid" style="margin-top:8px">${m.d.fotos.map(mediaHtml).join("")}</div>` : ""}</div>`).join("")}</div>` : "";
+  const medidoresHtml = medidoresList.length ? `
+    <div class="section-card">
+      <h2 class="section-title"><span class="section-num" style="background:#3d7a57">💧</span>Medidores</h2>
+      ${medidoresList.map((m) => `
+        <div class="item-card">
+          <strong style="font-size:14px">${m.label}</strong>
+          <p class="meta-line">${[
+            m.d.numero && `<strong>Nº:</strong> ${m.d.numero}`,
+            m.d.leitura && `<strong>Leitura:</strong> ${m.d.leitura}${m.d.unidade ? " " + m.d.unidade : ""}`,
+            m.d.concessionaria && `<strong>Concessionária:</strong> ${m.d.concessionaria}`,
+          ].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>
+          ${m.d.observacoes ? `<p class="obs-line">${escapeHtml(m.d.observacoes)}</p>` : ""}
+          ${(m.d.fotos || []).length ? `<div class="media-grid" style="margin-top:8px">${m.d.fotos.map(mediaHtml).join("")}</div>` : ""}
+        </div>
+      `).join("")}
+    </div>` : "";
 
-  const chavesHtml = chavesList.length ? `<div class="section-card"><h2 class="section-title"><span class="section-num" style="background:#a97a1f">🔑</span>Chaves e acessos</h2>${chavesList.map((c) => `<div class="item-card"><strong style="font-size:14px">${escapeHtml(c.label)}</strong><p class="meta-line">${[c.quantidade && `<strong>Qtd.:</strong> ${c.quantidade}`, c.observacoes && escapeHtml(c.observacoes)].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>${(c.fotos || []).length ? `<div class="media-grid" style="margin-top:8px">${c.fotos.map(mediaHtml).join("")}</div>` : ""}</div>`).join("")}</div>` : "";
+  const chavesHtml = chavesList.length ? `
+    <div class="section-card">
+      <h2 class="section-title"><span class="section-num" style="background:#a97a1f">🔑</span>Chaves e acessos</h2>
+      ${chavesList.map((c) => `
+        <div class="item-card">
+          <strong style="font-size:14px">${escapeHtml(c.label)}</strong>
+          <p class="meta-line">${[c.quantidade && `<strong>Qtd.:</strong> ${c.quantidade}`, c.observacoes && escapeHtml(c.observacoes)].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>
+          ${(c.fotos || []).length ? `<div class="media-grid" style="margin-top:8px">${c.fotos.map(mediaHtml).join("")}</div>` : ""}
+        </div>
+      `).join("")}
+    </div>` : "";
 
-  const capaHtml = inspection.capaFoto ? `<div style="margin-bottom:22px"><img src="${getUrlFoto(inspection.capaFoto.src)}" class="zoomable-photo" style="width:100%;max-height:300px;object-fit:cover;border-radius:14px;cursor:zoom-in;display:block;box-shadow:0 4px 16px rgba(0,0,0,0.12)" /></div>` : "";
+  const capaHtml = inspection.capaFoto ? `
+    <div style="margin-bottom:22px">
+      <img src="${getUrlFoto(inspection.capaFoto.src)}" class="zoomable-photo" style="width:100%;max-height:300px;object-fit:cover;border-radius:14px;cursor:zoom-in;display:block;box-shadow:0 4px 16px rgba(0,0,0,0.12)" />
+    </div>` : "";
 
-  const sigHtml = (label, src) => `<div style="flex:1;min-width:200px"><p class="eyebrow">${label}</p>${src ? `<img src="${getUrlFoto(src)}" style="width:100%;height:90px;object-fit:contain;border:1px solid #e7dcd6;border-radius:10px;background:#fff" />` : `<div style="width:100%;height:90px;border:1.5px dashed #d9cec7;border-radius:10px"></div>`}<div style="border-top:1px solid #e7dcd6;margin-top:36px;padding-top:4px;font-size:10px;text-align:center;color:#a8828a">Assinatura manual (se necessário)</div></div>`;
+  const sigHtml = (label, src) => `
+    <div style="flex:1;min-width:200px">
+      <p class="eyebrow">${label}</p>
+      ${src ? `<img src="${getUrlFoto(src)}" style="width:100%;height:90px;object-fit:contain;border:1px solid #e7dcd6;border-radius:10px;background:#fff" />` : `<div style="width:100%;height:90px;border:1.5px dashed #d9cec7;border-radius:10px"></div>`}
+      <div style="border-top:1px solid #e7dcd6;margin-top:36px;padding-top:4px;font-size:10px;text-align:center;color:#a8828a">Assinatura manual (se necessário)</div>
+    </div>`;
 
   const logoHtml = logo ? `<img src="${getUrlFoto(logo)}" style="height:56px;max-width:150px;object-fit:contain;border-radius:8px" />` : "";
 
@@ -3051,6 +1824,35 @@ function buildReportHTML(inspection, logo) {
 <meta charset="utf-8" />
 <title>Laudo de Vistoria — ${escapeHtml(enderecoCompleto(inspection.imovel) || "VistorIA")}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; color: #2a1c20; margin: 0; padding: 24px; background: #f4efea; }
+  .toolbar { position: sticky; top: 0; background: #f4efea; padding: 10px 0 16px; display: flex; justify-content: flex-end; gap: 8px; z-index: 10; }
+  .toolbar button { background: #A23A4C; color: #fff; border: none; border-radius: 999px; padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(162,58,76,0.25); }
+  .wrap { max-width: 780px; margin: 0 auto; background: #fff; border-radius: 20px; padding: 32px; box-shadow: 0 8px 30px rgba(40,20,25,0.08); }
+  .eyebrow { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #93636d; margin: 0 0 4px; }
+  .section-card { background: #fbf8f6; border: 1px solid #eee0da; border-radius: 16px; padding: 18px 20px; margin-bottom: 18px; break-inside: avoid; page-break-inside: avoid; }
+  .section-title { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; margin: 0 0 14px; padding-bottom: 10px; border-bottom: 2px solid #eee0da; color: #4e1b26; }
+  .section-num { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 999px; background: #A23A4C; color: #fff; font-size: 11px; font-weight: 700; font-family: 'JetBrains Mono', monospace; flex-shrink: 0; }
+  .item-card { background: #fff; border: 1px solid #f0e6e1; border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; break-inside: avoid; page-break-inside: avoid; }
+  .item-card:last-child { margin-bottom: 0; }
+  .pill { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 3px 10px; border-radius: 999px; }
+  .meta-line { font-size: 12px; color: #7a5a60; margin: 4px 0; line-height: 1.5; }
+  .obs-line { font-size: 12.5px; color: #3a2a2e; margin: 6px 0; line-height: 1.5; }
+  .dano-line { font-size: 12.5px; color: #b23e2a; font-weight: 600; margin: 6px 0; line-height: 1.5; }
+  .media-grid { display: flex; gap: 10px; flex-wrap: wrap; }
+  .media-card { width: 130px; border: 1px solid #eee0da; border-radius: 10px; overflow: hidden; background: #fff; box-shadow: 0 2px 6px rgba(40,20,25,0.06); break-inside: avoid; }
+  #photo-lightbox { display: none; position: fixed; inset: 0; background: rgba(10,11,16,0.92); z-index: 1000; align-items: center; justify-content: center; padding: 24px; cursor: zoom-out; }
+  #photo-lightbox.open { display: flex; }
+  #photo-lightbox img { max-width: 94vw; max-height: 90vh; object-fit: contain; border-radius: 8px; }
+  #photo-lightbox button { position: absolute; top: 18px; right: 18px; width: 36px; height: 36px; border-radius: 999px; background: rgba(255,255,255,0.15); color: #fff; border: none; font-size: 18px; cursor: pointer; }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .toolbar { display: none; }
+    #photo-lightbox { display: none !important; }
+    .wrap { box-shadow: none; border-radius: 0; padding: 12px; max-width: 100%; }
+    .section-card { background: #fff; border: 1px solid #eee; }
+  }
 </style>
 </head>
 <body>
@@ -3072,9 +1874,7 @@ function buildReportHTML(inspection, logo) {
       </div>
       ${inspection.status === "Finalizada" ? `<div style="border:2.5px solid #3fa76b;color:#3fa76b;border-radius:999px;padding:8px 16px;font-weight:700;font-size:12px;transform:rotate(-6deg);white-space:nowrap">✓ FINALIZADA<br/>${escapeHtml(fmtDate(inspection.dataVistoria))}</div>` : ""}
     </div>
-
     ${capaHtml}
-
     <div class="section-card" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:13.5px">
       <div><p class="eyebrow">Data</p>${escapeHtml(fmtDate(inspection.dataVistoria))}</div>
       <div><p class="eyebrow">Vistoriador</p>${escapeHtml(inspection.vistoriador || "—")}</div>
@@ -3087,11 +1887,9 @@ function buildReportHTML(inspection, logo) {
       <div><p class="eyebrow">Inquilino</p>${escapeHtml(inspection.imovel.inquilino || "—")}</div>
       <div style="grid-column:1 / -1;padding-top:6px;border-top:1px dashed #eee0da"><p class="eyebrow">Resumo</p><strong>${inspection.ambientes.length}</strong> ambientes &nbsp;·&nbsp; <strong>${totalItens}</strong> itens ${avarias > 0 ? `&nbsp;·&nbsp; <span style="color:#b23e2a;font-weight:700">${avarias} avarias</span>` : ""}</div>
     </div>
-
     ${ambientesHtml}
     ${medidoresHtml}
     ${chavesHtml}
-
     <div style="display:flex;gap:20px;flex-wrap:wrap;border-top:1px dashed #ddd;padding-top:20px;margin-top:20px">
       ${sigHtml("Assinatura do vistoriador", inspection.signatures?.vistoriador)}
       ${sigHtml("Assinatura do locador", inspection.signatures?.locador)}
@@ -3237,8 +2035,7 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
         <div className="rounded-xl px-4 py-3 text-xs flex items-start gap-2" style={{ background: "var(--card-alt)", border: "1px solid var(--line)", color: "var(--ink-soft)" }}>
           <Info size={14} className="shrink-0 mt-0.5" />
           <span>
-            O botão abre o laudo pronto em uma nova aba, já formatado para leitura e impressão — use o botão
-            "Imprimir / salvar como PDF" dentro dessa aba. {printHint && (
+            O botão abre o laudo pronto em uma nova aba, já formatado para leitura e impressão — use o botão "Imprimir / salvar como PDF" dentro dessa aba. {printHint && (
               <>Se a aba não abriu, seu navegador pode ter bloqueado o pop-up: permita pop-ups para este site e toque no botão novamente.</>
             )}
           </span>
@@ -3253,23 +2050,11 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
                 logo ? (
                   <div className="relative group">
                     <img src={getUrlFoto(logo)} alt="Logo" style={{ height: 52, maxWidth: 140, objectFit: "contain" }} />
-                    <button
-                      onClick={handleRemoveLogo}
-                      className="no-print absolute -top-2 -right-2 rounded-full bg-black/60 text-white flex items-center justify-center"
-                      style={{ width: 16, height: 16 }}
-                      title="Remover logo"
-                    >
-                      <X size={10} />
-                    </button>
+                    <button onClick={handleRemoveLogo} className="no-print absolute -top-2 -right-2 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 16, height: 16 }} title="Remover logo"><X size={10} /></button>
                   </div>
                 ) : (
-                  <button
-                    onClick={() => logoFileRef.current?.click()}
-                    className="btn-ghost rounded-xl px-3 py-2 text-xs flex flex-col items-center justify-center gap-1 no-print"
-                    style={{ width: 90, height: 52 }}
-                  >
-                    <Camera size={14} />
-                    Add. logo
+                  <button onClick={() => logoFileRef.current?.click()} className="btn-ghost rounded-xl px-3 py-2 text-xs flex flex-col items-center justify-center gap-1 no-print" style={{ width: 90, height: 52 }}>
+                    <Camera size={14} /> Add. logo
                   </button>
                 )
               )}
@@ -3286,14 +2071,7 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
 
           {inspection.capaFoto && (
             <div className="mb-6 print-block">
-              <img
-                src={getUrlFoto(inspection.capaFoto.src)}
-                alt="Foto do imóvel"
-                loading="lazy"
-                className="cursor-zoom-in"
-                style={{ width: "100%", maxHeight: 240, objectFit: "cover", borderRadius: 10, border: "1px solid var(--line)" }}
-                onClick={() => openLightbox(inspection.capaFoto.src)}
-              />
+              <img src={getUrlFoto(inspection.capaFoto.src)} alt="Foto do imóvel" loading="lazy" className="cursor-zoom-in" style={{ width: "100%", maxHeight: 240, objectFit: "cover", borderRadius: 10, border: "1px solid var(--line)" }} onClick={() => openLightbox(inspection.capaFoto.src)} />
               {inspection.capaFoto.date && (
                 <p className="text-[10px] mono mt-1" style={{ color: "var(--ink-soft)" }}>Foto registrada em {fmtDateTime(inspection.capaFoto.date)}</p>
               )}
@@ -3316,9 +2094,7 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
           {inspection.ambientes.map((amb, ambIdx) => (
             <div key={amb.id} className="mb-6 print-ambiente">
               <h2 className="display text-base font-bold mb-2 pb-1 divider flex items-center gap-2">
-                <span className="mono font-bold flex items-center justify-center rounded-full" style={{ width: 20, height: 20, fontSize: 10, background: "var(--accent)", color: "#F3E4E7" }}>
-                  {String(ambIdx + 1).padStart(2, "0")}
-                </span>
+                <span className="mono font-bold flex items-center justify-center rounded-full" style={{ width: 20, height: 20, fontSize: 10, background: "var(--accent)", color: "#F3E4E7" }}>{String(ambIdx + 1).padStart(2, "0")}</span>
                 {amb.nome}
               </h2>
               {(amb.fotos || []).length > 0 && (
@@ -3327,14 +2103,7 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
                   <div className="flex gap-2 flex-wrap">
                     {amb.fotos.map((foto, fi) => (
                       <div key={fi} className="text-center">
-                        <img
-                          src={getUrlFoto(foto.src)}
-                          alt=""
-                          loading="lazy"
-                          className="rounded-md object-cover cursor-zoom-in"
-                          style={{ width: 70, height: 70, border: "1px solid var(--line)" }}
-                          onClick={() => openLightbox(foto.src)}
-                        />
+                        <img src={getUrlFoto(foto.src)} alt="" loading="lazy" className="rounded-md object-cover cursor-zoom-in" style={{ width: 70, height: 70, border: "1px solid var(--line)" }} onClick={() => openLightbox(foto.src)} />
                         {foto.date && <p className="text-[9px] mono mt-0.5" style={{ color: "var(--ink-soft)" }}>{fmtDateTime(foto.date)}</p>}
                       </div>
                     ))}
@@ -3351,16 +2120,12 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
                         {item.semTeste ? (
                           <span className="badge badge-neutral">Sem teste</span>
                         ) : (
-                          <span className={`badge ${item.estado === "Bom" || item.estado === "Novo" ? "badge-good" : item.estado === "Regular" ? "badge-warn" : item.estado === "Péssimo" ? "badge-worse" : "badge-bad"}`}>
-                            {item.estado}
-                          </span>
+                          <span className={`badge ${item.estado === "Bom" || item.estado === "Novo" ? "badge-good" : item.estado === "Regular" ? "badge-warn" : item.estado === "Péssimo" ? "badge-worse" : "badge-bad"}`}>{item.estado}</span>
                         )}
                         {item.temDano && <span className="badge badge-bad flex items-center gap-1"><AlertTriangle size={10} /> Avaria</span>}
                       </div>
                       {camposPreenchidos.length > 0 && (
-                        <p className="mt-1 text-xs" style={{ color: "var(--ink-soft)" }}>
-                          {camposPreenchidos.map((f) => `${f.label}: ${item.campos[f.key]}`).join(" · ")}
-                        </p>
+                        <p className="mt-1 text-xs" style={{ color: "var(--ink-soft)" }}>{camposPreenchidos.map((f) => `${f.label}: ${item.campos[f.key]}`).join(" · ")}</p>
                       )}
                       {item.observacoes && <p className="mt-1" style={{ color: "var(--ink-soft)" }}>{item.observacoes}</p>}
                       {item.temDano && item.descricaoDano && (
@@ -3375,25 +2140,9 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
                             return (
                               <div key={i} className="text-center" style={{ maxWidth: 90 }}>
                                 <div className="relative inline-block" style={{ width: 70, height: 70 }}>
-                                  <img
-                                    src={getUrlFoto(foto.src)}
-                                    alt=""
-                                    loading="lazy"
-                                    className="rounded-md object-cover cursor-zoom-in"
-                                    style={{ width: 70, height: 70, border: "1px solid var(--line)" }}
-                                    onClick={() => openLightbox(foto.src)}
-                                  />
+                                  <img src={getUrlFoto(foto.src)} alt="" loading="lazy" className="rounded-md object-cover cursor-zoom-in" style={{ width: 70, height: 70, border: "1px solid var(--line)" }} onClick={() => openLightbox(foto.src)} />
                                   {pontos.map((p, mi) => (
-                                    <div
-                                      key={mi}
-                                      style={{
-                                        position: "absolute", left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-50%)",
-                                        width: 13, height: 13, borderRadius: "50%", border: "2px solid #E23B3B", background: "rgba(226,59,59,0.3)",
-                                        color: "#fff", fontSize: 8, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center",
-                                      }}
-                                    >
-                                      {mi + 1}
-                                    </div>
+                                    <div key={mi} style={{ position: "absolute", left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-50%)", width: 13, height: 13, borderRadius: "50%", border: "2px solid #E23B3B", background: "rgba(226,59,59,0.3)", color: "#fff", fontSize: 8, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{mi + 1}</div>
                                   ))}
                                 </div>
                                 {foto.date && <p className="text-[9px] mono mt-0.5" style={{ color: "var(--ink-soft)" }}>{fmtDateTime(foto.date)}</p>}
@@ -3417,9 +2166,7 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
                 {medidoresList.map((m) => (
                   <div key={m.label}>
                     <span className="font-medium">{m.label}</span>
-                    <span style={{ color: "var(--ink-soft)" }}>
-                      {" — "}{m.d.numero ? `nº ${m.d.numero}` : ""}{m.d.leitura ? ` · leitura ${m.d.leitura}${m.d.unidade ? " " + m.d.unidade : ""}` : ""}{m.d.concessionaria ? ` · ${m.d.concessionaria}` : ""}{m.d.observacoes ? ` · ${m.d.observacoes}` : ""}
-                    </span>
+                    <span style={{ color: "var(--ink-soft)" }}>{" — "}{m.d.numero ? `nº ${m.d.numero}` : ""}{m.d.leitura ? ` · leitura ${m.d.leitura}${m.d.unidade ? " " + m.d.unidade : ""}` : ""}{m.d.concessionaria ? ` · ${m.d.concessionaria}` : ""}{m.d.observacoes ? ` · ${m.d.observacoes}` : ""}</span>
                   </div>
                 ))}
               </div>
@@ -3433,9 +2180,7 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
                 {chavesList.map((c, i) => (
                   <div key={i}>
                     <span className="font-medium">{c.label}</span>
-                    <span style={{ color: "var(--ink-soft)" }}>
-                      {c.quantidade ? ` — qtd. ${c.quantidade}` : ""}{c.observacoes ? ` · ${c.observacoes}` : ""}
-                    </span>
+                    <span style={{ color: "var(--ink-soft)" }}>{c.quantidade ? ` — qtd. ${c.quantidade}` : ""}{c.observacoes ? ` · ${c.observacoes}` : ""}</span>
                   </div>
                 ))}
               </div>
@@ -3443,27 +2188,76 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
           )}
 
           <div className="divider pt-6 mt-8 flex gap-6 flex-wrap">
-            <SignaturePad
-              label="Assinatura do vistoriador"
-              value={inspection.signatures?.vistoriador}
-              locked={inspection.status === "Finalizada"}
-              onSave={(dataUrl) => onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, vistoriador: dataUrl } }))}
-            />
-            <SignaturePad
-              label="Assinatura do locador"
-              value={inspection.signatures?.locador}
-              locked={inspection.status === "Finalizada"}
-              onSave={(dataUrl) => onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locador: dataUrl } }))}
-            />
-            <SignaturePad
-              label="Assinatura do locatário"
-              value={inspection.signatures?.locatario}
-              locked={inspection.status === "Finalizada"}
-              onSave={(dataUrl) => onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locatario: dataUrl } }))}
-            />
+            <SignaturePad label="Assinatura do vistoriador" value={inspection.signatures?.vistoriador} locked={inspection.status === "Finalizada"} onSave={(dataUrl) => onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, vistoriador: dataUrl } }))} />
+            <SignaturePad label="Assinatura do locador" value={inspection.signatures?.locador} locked={inspection.status === "Finalizada"} onSave={(dataUrl) => onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locador: dataUrl } }))} />
+            <SignaturePad label="Assinatura do locatário" value={inspection.signatures?.locatario} locked={inspection.status === "Finalizada"} onSave={(dataUrl) => onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locatario: dataUrl } }))} />
           </div>
         </div>
       </div>
     </div>
   );
 }
+
+// ============================================================
+// OUTRAS FUNÇÕES UTILITÁRIAS
+// ============================================================
+
+function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+async function maybeCompressImage(file) {
+  if (!file.type.startsWith("image/") || file.type === "image/gif") return file;
+  try {
+    const { width, height } = await getImageDimensions(file);
+    const alreadySmallDim = Math.max(width, height) <= 1200;
+    const alreadySmallFile = file.size <= 250 * 1024;
+    const compressed = await compressImageFile(file);
+    return compressed.size < file.size ? compressed : file;
+  } catch {
+    return file;
+  }
+}
+
+function getImageDimensions(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Não foi possível ler a imagem.")); };
+    img.src = url;
+  });
+}
+
+function compressImageFile(file, maxDim = 1200, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.max(1, Math.round(img.naturalWidth * scale));
+      const h = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob((blob) => {
+          if (!blob) { reject(new Error("Falha ao comprimir imagem.")); return; }
+          resolve(new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }));
+        }, "image/jpeg", quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Não foi possível ler a imagem.")); };
+    img.src = url;
+  });
+}
+
