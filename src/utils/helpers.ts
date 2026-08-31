@@ -2,7 +2,8 @@
 import { storage } from '../lib/storage';
 import { supabase } from '../components/supabaseClient';
 import { uploadFileToSupabase } from "./supabaseUpload";
-import { PROPERTY_MODELS } from '../App';
+import { PROPERTY_MODELS } from "../App";
+
 
 const STORAGE_INDEX_KEY = "insp-index";
 const inspKey = (id: string) => `insp:${id}`;
@@ -150,25 +151,12 @@ export function getUrlFoto(caminho) {
   return data?.publicUrl || caminho;
 }
 
-export async function filesToPhotos(files) {
-  const now = new Date().toISOString();
-  const photos = await Promise.all(files.map(async (file) => {
-    let src = await fileToDataURL(file);// salva localmente
-    const publicUrl = await uploadFileToSupabase(file);// tenta subir pro supabase
-    if (publicUrl) src = publicUrl;// se subiu usa o link publico
-    return { src, date: now, type: mediaTypeOf(file), marcas: [] };
-  }));
-  return photos;
-}
-
 export function fichaText(inspection) {
   return ["Ficha rápida do imóvel — VistorIA", `Endereço: ${enderecoCompleto(inspection.imovel) || "—"}`, `Tipo: ${inspection.imovel.tipoImovel} (${inspection.mobiliario})`, inspection.imovel.metragem ? `Metragem: ${inspection.imovel.metragem}` : null, `Proprietário: ${inspection.imovel.proprietario || "—"}`, `Inquilino: ${inspection.imovel.inquilino || "—"}`, `Última vistoria: ${fmtDate(inspection.dataVistoria)} (${inspection.tipo})`, `Status: ${inspection.status}`].filter(Boolean).join("\n");
 }
 
-export function ambientesFromModel(modelKeyOrObj) {
-  const model = typeof modelKeyOrObj === "string" ? PROPERTY_MODELS[modelKeyOrObj] : modelKeyOrObj;
-  if (!model || !model.ambientes) return [];
-  return Object.entries(model.ambientes).map(([nome, itens]) => makeAmbiente(nome, itens));
+export function qrCodeUrl(text, size = 220) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`;
 }
 
 export function enderecoCompleto(imovel) {
@@ -179,8 +167,56 @@ export function enderecoCompleto(imovel) {
   return [linha1, linha2].filter(Boolean).join(" - ") + comp;
 }
 
+export function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
 
-function compressImageFile(file, maxDim = 1200, quality = 0.8) {
+export function emptyChave() {
+  return { quantidade: "", observacoes: "", fotos: [] };
+}
+
+export async function filesToPhotos(files) {
+  const now = new Date().toISOString();
+  const photos = await Promise.all(files.map(async (file) => {
+    let src = await fileToDataURL(file);
+    const publicUrl = await uploadFileToSupabase(file);
+    if (publicUrl) src = publicUrl;
+    return { src, date: now, type: mediaTypeOf(file), marcas: [] };
+  }));
+  return photos;
+}
+
+export function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+export function getImageDimensions(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => { URL.revokeObjectURL(url); resolve({ width: img.naturalWidth, height: img.naturalHeight }); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Não foi possível ler a imagem.")); };
+    img.src = url;
+  });
+}
+
+export async function maybeCompressImage(file) {
+  if (!file.type.startsWith("image/") || file.type === "image/gif") return file;
+  try {
+    const { width, height } = await getImageDimensions(file);
+    const alreadySmallDim = Math.max(width, height) <= 1200;
+    const alreadySmallFile = file.size <= 250 * 1024;
+    const compressed = await compressImageFile(file);
+    return compressed.size < file.size ? compressed : file;
+  } catch { return file; }
+}
+
+export function compressImageFile(file, maxDim = 1200, quality = 0.8) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -204,45 +240,9 @@ function compressImageFile(file, maxDim = 1200, quality = 0.8) {
   });
 }
 
-async function maybeCompressImage(file) {
-  if (!file.type.startsWith("image/") || file.type === "image/gif") return file;
-  try {
-    const { width, height } = await getImageDimensions(file);
-    const alreadySmallDim = Math.max(width, height) <= 1200;
-    const alreadySmallFile = file.size <= 250 * 1024;
-    const compressed = await compressImageFile(file);
-    return compressed.size < file.size ? compressed : file;
-  } catch {
-    return file;
-  }
+export function ambientesFromModel(modelKeyOrObj) {
+  const model = typeof modelKeyOrObj === "string" ? PROPERTY_MODELS[modelKeyOrObj] : modelKeyOrObj;
+  if (!model || !model.ambientes) return [];
+  return Object.entries(model.ambientes).map(([nome, itens]) => makeAmbiente(nome, itens));
 }
 
-function getImageDimensions(file) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve({ width: img.naturalWidth, height: img.naturalHeight });
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Não foi possível ler a imagem.")); };
-    img.src = url;
-  });
-}
-
-export function todayISO() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-export function qrCodeUrl(text, size = 220) {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`;
-}
-
-export function fileToDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = reject;
-    r.readAsDataURL(file);
-  });
-}

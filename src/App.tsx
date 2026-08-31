@@ -1110,14 +1110,38 @@ function AmbientesTab({ inspection, locked, templateOpen, setTemplateOpen, addAm
             <Layers size={16} /> Adicionar ambiente <ChevronDown size={14} className={templateOpen ? "rotate-180" : ""} />
           </button>
           {templateOpen && (
-            <div className="card absolute z-10 mt-2 p-2 w-80 shadow-lg" style={{ maxHeight: 420, overflowY: "auto" }}>
+            <div className="card absolute z-10 mt-2 p-2 shadow-lg" style={{ maxHeight: 420, overflowY: "auto", maxWidth: 340, width: "100%", borderRadius: 16, background: "var(--card)" }}>
+              {/* Primeiro ambiente com ícone, nome e contagem */}
               <p className="label px-3 pt-1 pb-1.5">Ambiente único</p>
-              {Object.entries(TEMPLATES).map(([nome, itens]) => (
-                <button key={nome} onClick={() => { addAmbiente(nome, itens); setTemplateOpen(false); }} className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-white/5 flex items-center justify-between" style={{ color: "var(--ink-strong)" }}>
-                  <span>{nome}</span>
-                  <span className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{itens.length} itens</span>
-                </button>
-              ))}
+              {Object.entries(TEMPLATES).map(([nome, itens]) => {
+                // Função para escolher ícone com base no nome
+                const getIconeMenu = (nome) => {
+                  const n = (nome || "").toLowerCase();
+                  if (n.includes("sala")) return <Sofa size={18} color="#F48FB1" />;
+                  if (n.includes("cozinha")) return <CookingPot size={18} color="#FF8A80" />;
+                  if (n.includes("quarto")) return <BedDouble size={18} color="#A5D6A7" />;
+                  if (n.includes("banheiro")) return <Bath size={18} color="#90CAF9" />;
+                  if (n.includes("lavabo")) return <Bath size={18} color="#90CAF9" />;
+                  if (n.includes("área de serviço")) return <WashingMachine size={18} color="#CE93D8" />;
+                  if (n.includes("área externa")) return <TreePine size={18} color="#A5D6A7" />;
+                  if (n.includes("corredor")) return <DoorOpen size={18} color="#FFE082" />;
+                  if (n.includes("garagem")) return <Car size={18} color="#FFE082" />;
+                  return <Sofa size={18} color="#F48FB1" />;
+                };
+                
+                return (
+                  <div key={nome} className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-white/5 border-b border-gray-700/30 last:border-0">
+                    <div className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 32, background: "var(--card-alt)", border: "1px solid var(--line)" }}>
+                      {getIconeMenu(nome)}
+                    </div>
+                    <button onClick={() => { addAmbiente(nome, itens); setTemplateOpen(false); }} className="flex-1 text-left text-sm" style={{ color: "var(--ink-strong)" }}>
+                      {nome}
+                    </button>
+                    <span className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{itens.length} itens</span>
+                  </div>
+                );
+              })}
+              
               <div className="divider my-1" />
               <button onClick={() => { const nome = prompt("Nome do ambiente personalizado:"); if (nome && nome.trim()) { addAmbiente(nome.trim(), []); } setTemplateOpen(false); }} className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-white/5 flex items-center gap-2" style={{ color: "var(--accent)" }}>
                 <Plus size={14} /> Ambiente personalizado
@@ -1148,7 +1172,7 @@ function AmbientesTab({ inspection, locked, templateOpen, setTemplateOpen, addAm
           <p className="text-sm" style={{ color: "var(--ink-soft)" }}>Nenhum ambiente adicionado. Use um modelo pronto ou crie um ambiente personalizado.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-3">
           {inspection.ambientes.map((amb, idx) => (
             <AmbienteCard
               key={amb.id}
@@ -1194,37 +1218,67 @@ function AmbienteCard({ ambiente, numero, locked, onRemove, onChange }) {
     onChange((a) => ({ ...a, fotos: (a.fotos || []).filter((_, i) => i !== idx) }));
   }
 
-  // Função para escolher cor e ícone
+  // Lógica de cores e ícones
   const getIcone = (nome) => {
     const n = (nome || "").toLowerCase();
-    if (n.includes("sala")) return { bg: "#F48FB1", border: "#E91E63", icon: <Sofa size={24} color="#F48FB1" /> };
-    if (n.includes("cozinha")) return { bg: "#FF8A80", border: "#F44336", icon: <CookingPot size={24} color="#FF8A80" /> };
-    if (n.includes("quarto")) return { bg: "#A5D6A7", border: "#4CAF50", icon: <BedDouble size={24} color="#A5D6A7" /> };
-    if (n.includes("banheiro")) return { bg: "#90CAF9", border: "#2196F3", icon: <Bath size={24} color="#90CAF9" /> };
-    if (n.includes("garagem")) return { bg: "#FFE082", border: "#FFC107", icon: <Car size={24} color="#FFE082" /> };
-    if (n.includes("área de serviço")) return { bg: "#CE93D8", border: "#9C27B0", icon: <WashingMachine size={24} color="#CE93D8" /> };
-    if (n.includes("área externa")) return { bg: "#A5D6A7", border: "#4CAF50", icon: <TreePine size={24} color="#A5D6A7" /> };
-    if (n.includes("corredor")) return { bg: "#FFE082", border: "#FFC107", icon: <DoorOpen size={24} color="#FFE082" /> };
-    return { bg: "#F48FB1", border: "#E91E63", icon: <Sofa size={24} color="#F48FB1" /> };
+    if (n.includes("sala")) return { icon: <Sofa size={24} color="#F48FB1" />, bg: "#1F1120", border: "#E91E63" };
+    if (n.includes("cozinha")) return { icon: <CookingPot size={24} color="#FF8A80" />, bg: "#1D1010", border: "#F44336" };
+    if (n.includes("quarto")) return { icon: <BedDouble size={24} color="#A5D6A7" />, bg: "#101D12", border: "#4CAF50" };
+    if (n.includes("banheiro")) return { icon: <Bath size={24} color="#90CAF9" />, bg: "#10141D", border: "#2196F3" };
+    if (n.includes("garagem")) return { icon: <Car size={24} color="#FFE082" />, bg: "#1D1A10", border: "#FFC107" };
+    if (n.includes("área de serviço")) return { icon: <WashingMachine size={24} color="#CE93D8" />, bg: "#1D1020", border: "#9C27B0" };
+    if (n.includes("área externa")) return { icon: <TreePine size={24} color="#A5D6A7" />, bg: "#101D12", border: "#4CAF50" };
+    if (n.includes("corredor")) return { icon: <DoorOpen size={24} color="#FFE082" />, bg: "#1D1A10", border: "#FFC107" };
+    return { icon: <Sofa size={24} color="#F48FB1" />, bg: "#1F1120", border: "#E91E63" };
   };
 
   const cor = getIcone(ambiente.nome);
 
   return (
-    <div className="card p-4 flex flex-col items-start justify-between cursor-pointer" onClick={() => setOpen((v) => !v)} style={{ minHeight: 150 }}>
-      <div className="flex items-center justify-center rounded-full" style={{ width: 45, height: 45, background: cor.bg, border: `1px solid ${cor.border}` }}>
-        {cor.icon}
+    <div className="card overflow-hidden" style={{ background: "var(--card-alt)" }}>
+      {/* CABEÇALHO DO AMBIENTE */}
+      <div className="flex items-center gap-3 px-4 py-3 cursor-pointer" onClick={() => setOpen((v) => !v)}>
+        <div className="flex items-center justify-center rounded-xl" style={{ width: 46, height: 46, background: cor.bg, border: `2px solid ${cor.border}` }}>
+          {cor.icon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-sm truncate" style={{ color: "var(--ink-strong)" }}>{ambiente.nome}</p>
+          <p className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{ambiente.itens.length} itens</p>
+          <p className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{totalMidias} mídia(s)</p>
+        </div>
+        {avariasAmb > 0 && <span className="badge badge-bad shrink-0">{avariasAmb} avarias</span>}
+        {!locked && (
+          <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="btn-ghost rounded-full p-1.5 shrink-0">
+            <Trash2 size={13} />
+          </button>
+        )}
+        {open ? <ChevronDown size={16} className="shrink-0" /> : <ChevronRight size={16} className="shrink-0" />}
       </div>
-      <div className="w-full">
-        <h3 className="display font-semibold text-sm" style={{ color: "var(--ink-strong)" }}>{ambiente.nome}</h3>
-        <p className="text-xs mono mt-1" style={{ color: "var(--ink-soft)" }}>{ambiente.itens.length} itens</p>
-        <p className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{totalMidias} mídia(s)</p>
-        {avariasAmb > 0 && <span className="badge badge-bad mt-1">{avariasAmb} avarias</span>}
-      </div>
-      {!locked && (
-        <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="absolute top-2 right-2 btn-ghost rounded-full p-1.5">
-          <Trash2 size={13} />
-        </button>
+
+      {/* CONTEÚDO INTERNO */}
+      {open && (
+        <div className="p-4" style={{ borderTop: "1px solid var(--line)" }}>
+          <div className="mb-4 p-3 rounded-2xl" style={{ border: "1px dashed var(--line)" }}>
+            <p className="label mb-2">Fotos e vídeos gerais do ambiente</p>
+            <div className="flex items-center gap-2 flex-wrap mb-2">
+              {fotosAmbiente.map((foto, idx) => (
+                <PhotoThumb key={idx} foto={foto} onRemove={!locked ? () => removeFotoAmbiente(idx) : null} onUpdate={!locked ? (marcas) => onChange((a) => ({ ...a, fotos: (a.fotos || []).map((f, i) => (i === idx ? { ...f, marcas } : f)) })) : null} />
+              ))}
+            </div>
+            {!locked && <PhotoPicker onAdd={handleAddFotosAmbiente} small />}
+          </div>
+
+          <div className="grid gap-3">
+            {ambiente.itens.map((item) => (
+              <ItemRow key={item.id} item={item} locked={locked} onChange={(fn) => updateItem(item.id, fn)} onRemove={() => removeItem(item.id)} />
+            ))}
+          </div>
+          {!locked && (
+            <button onClick={addItem} className="btn-ghost rounded-full px-3 py-2 text-xs mt-3 flex items-center gap-1.5">
+              <Plus size={13} /> Adicionar item
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
