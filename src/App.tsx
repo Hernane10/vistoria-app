@@ -4,32 +4,28 @@ import {
   Plus, ChevronDown, ChevronRight, Camera, Trash2, AlertTriangle,
   FileText, ArrowLeft, Search, Building2, Calendar, Printer,
   X, CheckCircle2, ClipboardList, Layers, MapPin, Lock, Unlock,
-  PenLine, RotateCcw, Cloud, CloudOff, Loader2, Gauge, KeyRound, Flame, Droplet,
-   Zap, Info, EyeOff, Eye,
-  Upload, ImagePlus, Wand2, Trash, Sun, Moon, Video, Play, HelpCircle, Mic,
-  Pencil, Eraser, Share2, QrCode, GitCompare, Hash, Check, Target, Download
+  PenLine, RotateCcw, Cloud, CloudOff, Loader2, Gauge, KeyRound, Flame, Droplet, Zap, Info,
+   EyeOff, Eye, Upload, ImagePlus, Wand2, Trash, Sun, Moon, Video, Play, HelpCircle, Mic,
+  Pencil, Eraser, Share2, QrCode, GitCompare, Hash, Check, Target, Download, Sofa, CookingPot,
+BedDouble, Bath, Car, WashingMachine, TreePine, DoorOpen
 } from "lucide-react";
 import { storage } from "./lib/storage";
-import { AmbientesTab, AmbienteCard, ItemRow } from './components/AmbientesItems';
-import { SignaturePad, AssinaturaTab } from './components/Signatures';
 import CloudSyncWidget from "./components/CloudSyncWidget";
 import { enviarTodasFotosParaSupabase } from './uploadFotos.js';
 import { supabase } from './components/supabaseClient.js';
-import { MediaPicker, PhotoPicker, PhotoThumb, TextAreaWithDictation, PhotoAnnotator } from './components/MediaComponents';
-import { PromptModal, Lightbox, QrCodeModal } from './components/Modals';
-import { QuantityStepper, TechFieldPicker } from "./utils/ItemComponents";
-import { getUrlFoto, filesToPhotos, makeItem, makeAmbiente, fmtDate, uid, fmtDateTime,
-   emptyInspection, withDefaults, mediaTypeOf, normalizePhoto, fmtFileSize,
-   storageLoadAll, storageSaveInspection, storageSaveIndex, storageDeleteInspection,
-    enderecoCompleto, fichaText, ambientesFromModel, todayISO,
-     compressImageFile, fileToDataURL, getImageDimensions } from './utils/helpers';
+import { getUrlFoto, filesToPhotos, makeItem, makeAmbiente, ambientesFromModel,
+ fmtDate, uid, fmtDateTime, emptyInspection, withDefaults, mediaTypeOf,
+normalizePhoto, fmtFileSize, storageLoadAll, storageSaveInspection, 
+storageSaveIndex, storageDeleteInspection, enderecoCompleto, fichaText, 
+todayISO, compressImageFile, fileToDataURL, getImageDimensions } from './utils/helpers';
+import { MediaPicker, PhotoPicker, PhotoThumb, TextAreaWithDictation } from './components/MediaComponents';
+import { PromptModal, Lightbox } from './components/Modals';
 
+export const LightboxContext = createContext(() => {});
 
-export const LightboxContext = createContext(() => {})
-
-// ============================================================
+// =====================================================================
 // CONSTANTES E FUNÇÕES AUXILIARES
-// ============================================================
+// =====================================================================
 
 const TEMPLATES = {
   "Sala de Estar": ["Teto", "Parede", "Piso", "Rodapé", "Porta", "Janela", "Tomadas", "Interruptores", "Iluminação", "Quadro de luz"],
@@ -100,7 +96,7 @@ const CHAVE_TIPOS = [
   { key: "tags", label: "Tags" },
 ];
 
-const PROPERTY_MODELS = {
+export const PROPERTY_MODELS = {
   Kitnet: { label: "Kitnet", descricao: "Ambiente integrado, ideal para vistorias rápidas de imóveis compactos.", ambientes: { "Ambiente Integrado (Sala/Quarto)": ["Teto", "Parede", "Piso", "Rodapé", "Porta", "Janela", "Tomadas", "Iluminação", "Armário embutido"], "Cozinha": TEMPLATES["Cozinha"], "Banheiro": TEMPLATES["Banheiro"] } },
   Casa: { label: "Casa", descricao: "Modelo completo com área externa, ideal para casas térreas ou sobrados.", ambientes: { "Sala de Estar": TEMPLATES["Sala de Estar"], "Cozinha": TEMPLATES["Cozinha"], "Quarto 1": TEMPLATES["Quarto"], "Quarto 2": TEMPLATES["Quarto"], "Banheiro": TEMPLATES["Banheiro"], "Lavabo": TEMPLATES["Lavabo"], "Área de Serviço": TEMPLATES["Área de Serviço"], "Corredor/Hall": TEMPLATES["Corredor/Hall"], "Área Externa": TEMPLATES["Área Externa"] } },
   Apartamento: { label: "Apartamento", descricao: "Modelo padrão para apartamentos residenciais.", ambientes: { "Sala de Estar": TEMPLATES["Sala de Estar"], "Cozinha": TEMPLATES["Cozinha"], "Quarto 1": TEMPLATES["Quarto"], "Banheiro": TEMPLATES["Banheiro"], "Área de Serviço": TEMPLATES["Área de Serviço"], "Corredor/Hall": TEMPLATES["Corredor/Hall"] } },
@@ -108,9 +104,9 @@ const PROPERTY_MODELS = {
   "Checklist Completo": { label: "Checklist Completo", descricao: "Roteiro amplo com os itens mais cobrados em vistorias.", ambientes: { "Estrutura Geral": ["Paredes (rachaduras/trincas)", "Pintura", "Piso", "Rodapé", "Teto (infiltração/mofo)", "Portas", "Fechaduras e trincos", "Dobradiças", "Janelas", "Vidros", "Iluminação", "Tomadas", "Interruptores", "Quadro de luz"], "Cozinha": ["Pia (vazamentos)", "Torneiras", "Escoamento/ralo", "Gabinete e armários", "Azulejo", "Exaustor/Coifa", "Ponto de gás", "Tomadas", "Piso (impermeabilização)"], "Banheiro": ["Vaso sanitário (descarga)", "Vedação da base do vaso", "Box (vidro/trilho)", "Chuveiro e registro", "Pia/bancada", "Ralos", "Espelho", "Ventilação", "Azulejos"], "Quartos": ["Armário embutido", "Portas", "Janelas (vedação)", "Piso (nivelamento/ruído)"], "Área de Serviço": ["Tanque", "Torneira do tanque", "Ponto para máquina de lavar", "Ralo/esgoto"], "Área Externa / Garagem": ["Portão", "Controle do portão", "Piso da garagem", "Muros", "Jardim/quintal"], "Medidores e Instalações": ["Medidor de água (leitura)", "Medidor de energia (leitura)", "Medidor de gás", "Registro geral de água"], "Chaves e Acessos": ["Chaves de entrada", "Chaves da garagem", "Controles", "Tags/cartões de acesso"], "Segurança": ["Extintores (validade)", "Detectores de fumaça", "Grades e proteções de janelas"] } },
 };
 
-// ============================================================
+// =====================================================================
 // EXPORT DEFAULT APP
-// ============================================================
+// =====================================================================
 
 export default function App() {
   const [inspections, setInspections] = useState([]);
@@ -124,9 +120,9 @@ export default function App() {
   const [customModels, setCustomModels] = useState([]);
   const [agendamentos, setAgendamentos] = useState([]);
   const [lightboxSrc, setLightboxSrc] = useState(null);
-  const [lightboxMarcas, setLightboxMarcas] = useState (null);
+  const [lightboxMarcas, setLightboxMarcas] = useState(null);
   const [loaded, setLoaded] = useState(false);
-  const [saveState, setSaveState] = useState(null);
+  const [saveState, setSaveState] = useState("idle");
   const saveTimer = useRef(null);
 
   const current = inspections.find((i) => i.id === currentId) || null;
@@ -324,9 +320,9 @@ export default function App() {
   );
 }
 
-// ============================================================
-// FUNÇÕES E COMPONENTES (BLOCO 2)
-// ============================================================
+// =====================================================================
+// FUNÇÕES E COMPONENTES
+// =====================================================================
 
 function SaveIndicator({ state }) {
   if (state === "idle") return null;
@@ -512,6 +508,10 @@ function AgendarModal({ date, onClose, onSave }) {
   );
 }
 
+// =====================================================================
+// LISTA DE VISTORIAS
+// =====================================================================
+
 function ListView({ inspections, allInspections, query, setQuery, dateFilter, setDateFilter, calendarVisible, toggleCalendar, onOpen, onNew, onUseModel, onGenerateExample, onDelete, saveState, customModels, onCreateCustomModel, onDeleteCustomModel, theme, toggleTheme, agendamentos, onAddAgendamento, onRemoveAgendamento, onExport, onImport }) {
   const [tab, setTab] = useState("vistorias");
   const [importing, setImporting] = useState(false);
@@ -661,6 +661,10 @@ function ListView({ inspections, allInspections, query, setQuery, dateFilter, se
     </div>
   );
 }
+
+// =====================================================================
+// AJUDA, MODELOS E NOVA VISTORIA
+// =====================================================================
 
 function AjudaTab() {
   const passos = [
@@ -867,17 +871,11 @@ function NewInspectionView({ onCancel, onCreate, initialModel }) {
 
   function submit() {
     onCreate({
-      tipo: form.tipo,
-      dataVistoria: form.dataVistoria,
-      vistoriador: form.vistoriador,
-      mobiliario: form.mobiliario,
-      capaFoto,
+      tipo: form.tipo, dataVistoria: form.dataVistoria, vistoriador: form.vistoriador, mobiliario: form.mobiliario, capaFoto,
       ambientes: modelKey ? ambientesFromModel(modelKey) : [],
       imovel: {
-        cep: form.cep, endereco: form.endereco, numero: form.numero, bairro: form.bairro,
-        cidade: form.cidade, estado: form.estado, complemento: form.complemento,
-        metragem: form.metragem, proprietario: form.proprietario, inquilino: form.inquilino,
-        tipoImovel: form.tipoImovel,
+        cep: form.cep, endereco: form.endereco, numero: form.numero, bairro: form.bairro, cidade: form.cidade, estado: form.estado,
+        complemento: form.complemento, metragem: form.metragem, proprietario: form.proprietario, inquilino: form.inquilino, tipoImovel: form.tipoImovel,
       },
     });
   }
@@ -971,9 +969,7 @@ function CapaFotoEditor({ capaFoto, locked, onChange }) {
         <div className="relative w-fit">
           <img src={getUrlFoto(capaFoto.src)} alt="Foto do imóvel" style={{ width: 140, height: 95, objectFit: "cover", borderRadius: 12, border: "1px solid var(--line)" }} />
           {capaFoto.date && <span className="photo-date" style={{ borderRadius: "0 0 12px 12px" }}>{fmtDateTime(capaFoto.date)}</span>}
-          {!locked && (
-            <button onClick={() => onChange(null)} className="absolute -top-2 -right-2 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 18, height: 18 }}><X size={11} /></button>
-          )}
+          {!locked && (<button onClick={() => onChange(null)} className="absolute -top-2 -right-2 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 18, height: 18 }}><X size={11} /></button>)}
         </div>
       ) : (
         !locked && (
@@ -986,6 +982,10 @@ function CapaFotoEditor({ capaFoto, locked, onChange }) {
     </div>
   );
 }
+
+// =====================================================================
+// DETALHES DA VISTORIA (DETAILVIEW)
+// =====================================================================
 
 function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspections = [], onExport }) {
   const [templateOpen, setTemplateOpen] = useState(false);
@@ -1075,28 +1075,16 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
           />
         )}
         {tab === "medidores" && (
-          <MedidoresTab
-            medidores={inspection.medidores}
-            locked={locked}
-            onChange={(fn) => onUpdate((insp) => ({ ...insp, medidores: fn(insp.medidores) }))}
-          />
+          <MedidoresTab medidores={inspection.medidores} locked={locked} onChange={(fn) => onUpdate((insp) => ({ ...insp, medidores: fn(insp.medidores) }))} />
         )}
         {tab === "chaves" && (
-          <ChavesTab
-            chaves={inspection.chaves}
-            locked={locked}
-            onChange={(fn) => onUpdate((insp) => ({ ...insp, chaves: fn(insp.chaves) }))}
-          />
+          <ChavesTab chaves={inspection.chaves} locked={locked} onChange={(fn) => onUpdate((insp) => ({ ...insp, chaves: fn(insp.chaves) }))} />
         )}
         {tab === "comparar" && (
           <ComparacaoTab inspection={inspection} allInspections={allInspections} />
         )}
         {tab === "parecer" && (
-          <ParecerTecnicoTab
-            parecerTecnico={inspection.parecerTecnico}
-            locked={locked}
-            onChange={(fn) => onUpdate((insp) => ({ ...insp, parecerTecnico: fn(insp.parecerTecnico || { texto: "", anexos: [] }) }))}
-          />
+          <ParecerTecnicoTab parecerTecnico={inspection.parecerTecnico} locked={locked} onChange={(fn) => onUpdate((insp) => ({ ...insp, parecerTecnico: fn(insp.parecerTecnico || { texto: "", anexos: [] }) }))} />
         )}
         {tab === "assinatura" && (
           <AssinaturaTab inspection={inspection} locked={locked} onUpdate={onUpdate} />
@@ -1109,20 +1097,353 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
   );
 }
 
-// ============================================================
-// COMPONENTES AUXILIARES
-// ============================================================
+// =====================================================================
+// AMBIENTES, ITENS E CAMPOS
+// =====================================================================
 
+function AmbientesTab({ inspection, locked, templateOpen, setTemplateOpen, addAmbiente, removeAmbiente, updateAmbiente, applyModel, customModels = [] }) {
+  return (
+    <>
+      {!locked && (
+        <div className="mb-6 relative">
+          <button onClick={() => setTemplateOpen((v) => !v)} className="btn-secondary rounded-full px-4 py-2.5 text-sm flex items-center gap-2">
+            <Layers size={16} /> Adicionar ambiente <ChevronDown size={14} className={templateOpen ? "rotate-180" : ""} />
+          </button>
+          {templateOpen && (
+            <div className="card absolute z-10 mt-2 p-2 w-80 shadow-lg" style={{ maxHeight: 420, overflowY: "auto" }}>
+              <p className="label px-3 pt-1 pb-1.5">Ambiente único</p>
+              {Object.entries(TEMPLATES).map(([nome, itens]) => (
+                <button key={nome} onClick={() => { addAmbiente(nome, itens); setTemplateOpen(false); }} className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-white/5 flex items-center justify-between" style={{ color: "var(--ink-strong)" }}>
+                  <span>{nome}</span>
+                  <span className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{itens.length} itens</span>
+                </button>
+              ))}
+              <div className="divider my-1" />
+              <button onClick={() => { const nome = prompt("Nome do ambiente personalizado:"); if (nome && nome.trim()) { addAmbiente(nome.trim(), []); } setTemplateOpen(false); }} className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-white/5 flex items-center gap-2" style={{ color: "var(--accent)" }}>
+                <Plus size={14} /> Ambiente personalizado
+              </button>
 
+              <div className="divider my-1" />
+              <p className="label px-3 pt-1 pb-1.5">Aplicar modelo pronto (vários ambientes)</p>
+              {Object.entries(PROPERTY_MODELS).map(([key, model]) => (
+                <button key={key} onClick={() => { applyModel(key); setTemplateOpen(false); }} className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-white/5 flex items-center justify-between" style={{ color: "var(--ink-strong)" }}>
+                  <span>{model.label}</span>
+                  <span className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{Object.keys(model.ambientes).length} ambientes</span>
+                </button>
+              ))}
+              {customModels.map((model) => (
+                <button key={model.id} onClick={() => { applyModel(model); setTemplateOpen(false); }} className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-white/5 flex items-center justify-between" style={{ color: "var(--ink-strong)" }}>
+                  <span>{model.label} <span style={{ color: "var(--ink-faint)" }}>(meu modelo)</span></span>
+                  <span className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{Object.keys(model.ambientes).length} ambientes</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
-// ============================================================
-// ITENS, MEDIDORES, CHAVES E PARECER
-// ============================================================
+      {inspection.ambientes.length === 0 ? (
+        <div className="card p-10 text-center">
+          <MapPin size={30} className="mx-auto mb-2" style={{ color: "var(--ink-soft)" }} />
+          <p className="text-sm" style={{ color: "var(--ink-soft)" }}>Nenhum ambiente adicionado. Use um modelo pronto ou crie um ambiente personalizado.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          {inspection.ambientes.map((amb, idx) => (
+            <AmbienteCard
+              key={amb.id}
+              ambiente={amb}
+              numero={idx + 1}
+              locked={locked}
+              onRemove={() => removeAmbiente(amb.id)}
+              onChange={(fn) => updateAmbiente(amb.id, fn)}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
 
+function AmbienteCard({ ambiente, numero, locked, onRemove, onChange }) {
+  const [open, setOpen] = useState(false);
+  const fotosAmbiente = ambiente.fotos || [];
+  const totalMidias = (ambiente.fotos?.length || 0) + ambiente.itens.reduce((acc, item) => acc + (item.fotos?.length || 0), 0);
+  const avariasAmb = ambiente.itens.filter((i) => i.temDano).length;
 
-// ============================================================
+  function addItem() {
+    const nome = prompt("Nome do item:");
+    if (!nome || !nome.trim()) return;
+    onChange((a) => ({ ...a, itens: [...a.itens, makeItem(nome.trim())] }));
+  }
+
+  function updateItem(itemId, fn) {
+    onChange((a) => ({ ...a, itens: a.itens.map((it) => (it.id === itemId ? fn(it) : it)) }));
+  }
+
+  function removeItem(itemId) {
+    onChange((a) => ({ ...a, itens: a.itens.filter((it) => it.id !== itemId) }));
+  }
+
+  async function handleAddFotosAmbiente(files) {
+    const photos = await filesToPhotos(files);
+    onChange((a) => ({ ...a, fotos: [...(a.fotos || []), ...photos] }));
+  }
+
+  function removeFotoAmbiente(idx) {
+    onChange((a) => ({ ...a, fotos: (a.fotos || []).filter((_, i) => i !== idx) }));
+  }
+
+  // Função para escolher cor e ícone
+  const getIcone = (nome) => {
+    const n = (nome || "").toLowerCase();
+    if (n.includes("sala")) return { bg: "#F48FB1", border: "#E91E63", icon: <Sofa size={24} color="#F48FB1" /> };
+    if (n.includes("cozinha")) return { bg: "#FF8A80", border: "#F44336", icon: <CookingPot size={24} color="#FF8A80" /> };
+    if (n.includes("quarto")) return { bg: "#A5D6A7", border: "#4CAF50", icon: <BedDouble size={24} color="#A5D6A7" /> };
+    if (n.includes("banheiro")) return { bg: "#90CAF9", border: "#2196F3", icon: <Bath size={24} color="#90CAF9" /> };
+    if (n.includes("garagem")) return { bg: "#FFE082", border: "#FFC107", icon: <Car size={24} color="#FFE082" /> };
+    if (n.includes("área de serviço")) return { bg: "#CE93D8", border: "#9C27B0", icon: <WashingMachine size={24} color="#CE93D8" /> };
+    if (n.includes("área externa")) return { bg: "#A5D6A7", border: "#4CAF50", icon: <TreePine size={24} color="#A5D6A7" /> };
+    if (n.includes("corredor")) return { bg: "#FFE082", border: "#FFC107", icon: <DoorOpen size={24} color="#FFE082" /> };
+    return { bg: "#F48FB1", border: "#E91E63", icon: <Sofa size={24} color="#F48FB1" /> };
+  };
+
+  const cor = getIcone(ambiente.nome);
+
+  return (
+    <div className="card p-4 flex flex-col items-start justify-between cursor-pointer" onClick={() => setOpen((v) => !v)} style={{ minHeight: 150 }}>
+      <div className="flex items-center justify-center rounded-full" style={{ width: 45, height: 45, background: cor.bg, border: `1px solid ${cor.border}` }}>
+        {cor.icon}
+      </div>
+      <div className="w-full">
+        <h3 className="display font-semibold text-sm" style={{ color: "var(--ink-strong)" }}>{ambiente.nome}</h3>
+        <p className="text-xs mono mt-1" style={{ color: "var(--ink-soft)" }}>{ambiente.itens.length} itens</p>
+        <p className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{totalMidias} mídia(s)</p>
+        {avariasAmb > 0 && <span className="badge badge-bad mt-1">{avariasAmb} avarias</span>}
+      </div>
+      {!locked && (
+        <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="absolute top-2 right-2 btn-ghost rounded-full p-1.5">
+          <Trash2 size={13} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// =====================================================================
+// ITENS (ItemRow e campos técnicos)
+// =====================================================================
+
+function ItemRow({ item, locked, onChange, onRemove }) {
+  const [open, setOpen] = useState(false);
+  const [showAllFields, setShowAllFields] = useState(false);
+  const campos = item.campos || Object.fromEntries(ITEM_FIELD_DEFS.map((f) => [f.key, ""]));
+  const camposPreenchidos = ITEM_FIELD_DEFS.filter((f) => campos[f.key]).length;
+  const estadoLabel = item.semTeste ? "Sem teste" : item.estado;
+  const relevantKeys = relevantFieldKeys(item.nome);
+  const visibleFields = showAllFields ? ITEM_FIELD_DEFS : ITEM_FIELD_DEFS.filter((f) => relevantKeys.includes(f.key));
+  const hiddenCount = ITEM_FIELD_DEFS.length - visibleFields.length;
+
+  async function handleAddPhotos(files) {
+    const photos = await filesToPhotos(files);
+    onChange((it) => ({ ...it, fotos: [...it.fotos, ...photos] }));
+  }
+
+  function removePhoto(idx) {
+    onChange((it) => ({ ...it, fotos: it.fotos.filter((_, i) => i !== idx) }));
+  }
+
+  return (
+    <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid var(--line)", background: "var(--card-alt)" }}>
+      <div className="flex items-center gap-2 px-4 py-3 cursor-pointer" onClick={() => setOpen((v) => !v)}>
+        {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+        <span className="font-semibold text-sm flex-1" style={{ color: "var(--item-name)" }}>{item.nome}</span>
+        <span className={`badge ${item.semTeste ? "badge-neutral" : estadoLabel === "Bom" || estadoLabel === "Novo" ? "badge-good" : estadoLabel === "Regular" ? "badge-warn" : estadoLabel === "Péssimo" ? "badge-worse" : "badge-bad"}`}>{estadoLabel}</span>
+        {item.temDano && <AlertTriangle size={14} style={{ color: "var(--bad)" }} />}
+        {item.fotos.length > 0 && <span className="text-xs mono" style={{ color: "var(--ink-soft)" }}>{item.fotos.length} mídia(s)</span>}
+        {!locked && <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="btn-ghost rounded-full p-1.5"><Trash2 size={13} /></button>}
+      </div>
+
+      {!open && camposPreenchidos > 0 && (
+        <p className="text-xs px-4 pb-3 pt-2" style={{ color: "var(--ink-soft)", borderTop: "1px solid var(--line)" }}>
+          {ITEM_FIELD_DEFS.filter((f) => campos[f.key]).map((f) => `${f.label}: ${campos[f.key]}`).join(" · ")}
+        </p>
+      )}
+
+      {open && (
+        <div className="px-4 pb-4">
+          <div className="flex gap-2 flex-wrap mb-2">
+            {ESTADOS.map((e) => (
+              <button key={e} disabled={locked} onClick={() => onChange((it) => ({ ...it, estado: e, semTeste: false }))} className={`estado-btn px-4 py-2 ${!item.semTeste && item.estado === e ? `active-${e}` : ""}`}>
+                {e}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2 flex-wrap mb-3">
+            <button disabled={locked} onClick={() => onChange((it) => ({ ...it, semTeste: !it.semTeste }))} className={`estado-btn px-4 py-2 ${item.semTeste ? "active-semteste" : ""}`}>
+              Sem teste
+            </button>
+          </div>
+
+          <div className="grid gap-2 mb-2">
+            {visibleFields.map((f) =>
+              f.type === "number" ? (
+                <QuantityStepper key={f.key} label={f.label} value={campos[f.key]} disabled={locked} onChange={(val) => onChange((it) => ({ ...it, campos: { ...(it.campos || {}), [f.key]: val } }))} />
+              ) : (
+                <TechFieldPicker key={f.key} fieldKey={f.key} label={f.label} value={campos[f.key]} options={FIELD_OPTIONS[f.key]} disabled={locked} onChange={(val) => onChange((it) => ({ ...it, campos: { ...(it.campos || {}), [f.key]: val } }))} />
+              )
+            )}
+          </div>
+          {!locked && hiddenCount > 0 && (
+            <button type="button" onClick={() => setShowAllFields((v) => !v)} className="btn-ghost rounded-full px-3 py-1.5 text-xs mb-3 flex items-center gap-1.5">
+              {showAllFields ? <><ChevronDown size={12} className="rotate-180" /> Mostrar só os campos relevantes</> : <><Plus size={12} /> Mostrar mais {hiddenCount} campo(s)</>}
+            </button>
+          )}
+
+          <TextAreaWithDictation disabled={locked} className="px-4 py-2.5" rows={2} placeholder="Observação..." value={item.observacoes} onChange={(val) => onChange((it) => ({ ...it, observacoes: val }))} />
+
+          <label className="flex items-center gap-2 mt-3 text-sm cursor-pointer select-none">
+            <input type="checkbox" disabled={locked} checked={item.temDano} onChange={(e) => onChange((it) => ({ ...it, temDano: e.target.checked }))} />
+            <span className="flex items-center gap-1" style={{ color: item.temDano ? "var(--bad)" : "var(--ink-soft)" }}>
+              <AlertTriangle size={13} /> Registrar avaria
+            </span>
+          </label>
+
+          {item.temDano && (
+            <div className="mt-2">
+              <TextAreaWithDictation disabled={locked} className="px-4 py-2.5" rows={2} placeholder="Descreva a avaria encontrada..." style={{ borderColor: "var(--bad)" }} value={item.descricaoDano} onChange={(val) => onChange((it) => ({ ...it, descricaoDano: val }))} />
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            {item.fotos.map((foto, idx) => (
+              <PhotoThumb key={idx} foto={foto} onRemove={!locked ? () => removePhoto(idx) : null} onUpdate={!locked ? (marcas) => onChange((it) => ({ ...it, fotos: it.fotos.map((f, i) => (i === idx ? { ...f, marcas } : f)) })) : null} />
+            ))}
+          </div>
+          {!locked && <div className="mt-2"><PhotoPicker onAdd={handleAddPhotos} small /></div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TechFieldPicker({ fieldKey, label, value, options, disabled, onChange }) {
+  const [expanded, setExpanded] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState(null);
+  const [added, setAdded] = useState([]);
+  const [removed, setRemoved] = useState([]);
+
+  const allOptions = [...(options || []).filter((o) => !removed.includes(o)), ...added];
+
+  function handleAddOption(e) {
+    e.stopPropagation();
+    setAddModalOpen(true);
+  }
+
+  function submitAddOption(texto) {
+    addOption(texto);
+    setAddModalOpen(false);
+    setExpanded(true);
+  }
+
+  function submitRenameOption(texto) {
+    if (texto !== renameTarget) {
+      renameOption(renameTarget, texto);
+      if (value === renameTarget) onChange(texto);
+    }
+    setRenameTarget(null);
+  }
+
+  return (
+    <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
+      <div className="flex items-center justify-between gap-2 px-3 pt-2.5" style={{ minHeight: 30 }}>
+        <button type="button" disabled={disabled} onClick={() => setExpanded((v) => !v)} className="flex items-center gap-2 text-left min-w-0">
+          {!disabled && <ChevronDown size={13} className={expanded ? "rotate-180" : ""} style={{ color: "var(--accent)", flexShrink: 0 }} />}
+          <span className="text-xs font-bold uppercase tracking-wide truncate" style={{ color: "var(--field-label)" }}>Detalhes {label}</span>
+        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {!disabled && allOptions.length > 0 && (
+            <button type="button" onClick={(e) => { e.stopPropagation(); setEditMode((v) => !v); }} className="btn-ghost rounded-full p-1" title="Editar opções">
+              <Pencil size={11} />
+            </button>
+          )}
+          {!disabled && (
+            <button type="button" onClick={handleAddOption} className="btn-secondary rounded-full px-2.5 py-1 text-[11px] font-semibold flex items-center gap-1">
+              <Plus size={11} /> Adicionar
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="px-3 pb-2.5 pt-1">
+        {value ? (
+          <p className="text-xs">
+            <span style={{ color: "var(--ink-soft)" }}>Valor: </span>
+            <span className="font-semibold" style={{ color: "var(--ink-strong)" }}>{value}</span>
+          </p>
+        ) : (
+          <p className="text-xs" style={{ color: "var(--ink-faint)" }}>Nenhum valor selecionado</p>
+        )}
+      </div>
+      {expanded && !disabled && (
+        <div className="px-3 pb-3">
+          {allOptions.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {allOptions.map((o) => (
+                <div key={o} className="relative">
+                  <button type="button" onClick={() => { if (editMode) { setRenameTarget(o); } else { onChange(o); setExpanded(false); } }} className={`estado-btn px-2.5 py-1.5 text-xs ${value === o ? "active-Bom" : ""}`} style={editMode ? { paddingRight: 20 } : undefined}>
+                    {o}
+                    {editMode && <Pencil size={9} className="inline-block ml-1" style={{ verticalAlign: "middle" }} />}
+                  </button>
+                  {editMode && (
+                    <button type="button" onClick={() => { removeOption(o); if (value === o) onChange(""); }} className="absolute rounded-full flex items-center justify-center" style={{ top: -5, right: -5, width: 16, height: 16, background: "var(--bad)", color: "#fff" }}>
+                      <X size={9} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <input className="input w-full px-3 py-1.5 text-xs" placeholder="Ou digite outro valor..." value={value || ""} onChange={(e) => onChange(e.target.value)} />
+        </div>
+      )}
+
+      {addModalOpen && (
+        <PromptModal title={`Nova opção para ${label}`} placeholder="Digite a nova opção..." confirmLabel="Adicionar" onSubmit={submitAddOption} onCancel={() => setAddModalOpen(false)} />
+      )}
+      {renameTarget && (
+        <PromptModal title="Editar opção" defaultValue={renameTarget} confirmLabel="Salvar" onSubmit={submitRenameOption} onCancel={() => setRenameTarget(null)} />
+      )}
+    </div>
+  );
+}
+
+function QuantityStepper({ label, value, disabled, onChange }) {
+  const n = value === "" || value === undefined || value === null ? 0 : Number(value) || 0;
+
+  function set(next) {
+    onChange(String(Math.max(0, next)));
+  }
+
+  return (
+    <div className="rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 flex-wrap" style={{ border: "1px solid var(--line)", background: "var(--card)" }}>
+      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--ink-strong)" }}>{label}</span>
+      <div className="flex items-center gap-2">
+        {!disabled && n !== 0 && (
+          <button type="button" onClick={() => set(0)} className="btn-ghost rounded-full px-2 py-0.5 text-[10px]" title="Zerar (nenhum)">0 / Nenhum</button>
+        )}
+        <button type="button" disabled={disabled || n <= 0} onClick={() => set(n - 1)} className="btn-ghost rounded-full flex items-center justify-center" style={{ width: 26, height: 26 }}>−</button>
+        <span className="text-sm font-semibold mono" style={{ minWidth: 22, textAlign: "center", color: "var(--ink-strong)" }}>{n}</span>
+        <button type="button" disabled={disabled} onClick={() => set(n + 1)} className="btn-ghost rounded-full flex items-center justify-center" style={{ width: 26, height: 26 }}>+</button>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================================
 // MEDIDORES, CHAVES E PARECER
-// ============================================================
+// =====================================================================
 
 function MedidorCard({ icon, title, data, locked, opcional, unidades, onChange }) {
   const ativo = data.ativo;
@@ -1246,11 +1567,11 @@ function ChavesTab({ chaves, locked, onChange }) {
   }
 
   function updateOutra(id, fn) {
-    onChange((c) => ({ ...c, outras: c.outras.map((o) => (o.id === id ? fn(o) : o)) }));
+    onChange((c) => ({ ...c, autres: c.outras.map((o) => (o.id === id ? fn(o) : o)) }));
   }
 
   function removeOutra(id) {
-    onChange((c) => ({ ...c, outras: c.outras.filter((o) => o.id !== id) }));
+    onChange((c) => ({ ...c, autres: c.outras.filter((o) => o.id !== id) }));
   }
 
   return (
@@ -1336,14 +1657,158 @@ function ParecerTecnicoTab({ parecerTecnico, locked, onChange }) {
   );
 }
 
-// ============================================================
+// =====================================================================
 // ASSINATURAS
-// ============================================================
+// =====================================================================
 
+function SignaturePad({ label, value, onSave, locked }) {
+  const canvasRef = useRef(null);
+  const [empty, setEmpty] = useState(true);
+  const drawing = useRef(false);
+  const hasDrawn = useRef(false);
 
-// ============================================================
+  function getPos(e, canvas) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) * (canvas.width / rect.width),
+      y: (e.clientY - rect.top) * (canvas.height / rect.height)
+    };
+  }
+
+  function start(e) {
+    if (locked) return;
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    canvas.setPointerCapture?.(e.pointerId);
+    drawing.current = true;
+    hasDrawn.current = true;
+    setEmpty(false);
+    const ctx = canvas.getContext("2d");
+    const { x, y } = getPos(e, canvas);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  }
+
+  function move(e) {
+    if (!drawing.current || locked) return;
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const { x, y } = getPos(e, canvas);
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#26364B";
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  }
+
+  function end() {
+    if (!drawing.current) return;
+    drawing.current = false;
+    if (hasDrawn.current) {
+      onSave(canvasRef.current.toDataURL("image/png"));
+    }
+  }
+
+  function clear() {
+    hasDrawn.current = false;
+    setEmpty(true);
+    onSave(null);
+  }
+
+  return (
+    <div className="flex-1 min-w-[220px]">
+      <div className="flex items-center justify-between mb-1.5">
+        <p className="label flex items-center gap-1.5"><PenLine size={12} /> {label}</p>
+        {!locked && !empty && (
+          <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); clear(); }} className="btn-ghost rounded-full px-2.5 py-1 text-xs no-print flex" type="button">
+            <RotateCcw size={11} /> Refazer
+          </button>
+        )}
+      </div>
+
+      {value ? (
+        <div style={{ border: "1px solid var(--line)", borderRadius: 10, background: "#fff", padding: 4 }}>
+          <img src={getUrlFoto(value)} alt={`Assinatura ${label}`} style={{ width: "100%", height: 110, objectFit: "contain" }} />
+        </div>
+      ) : (
+        <div className="relative">
+          <canvas
+            ref={canvasRef}
+            width={500}
+            height={220}
+            style={{
+              width: "100%", height: 110, borderRadius: 10, background: "#fff",
+              border: `1.5px dashed ${locked ? "var(--line)" : "var(--accent)"}`,
+              touchAction: "none", cursor: locked ? "default" : "crosshair",
+            }}
+            onPointerDown={start}
+            onPointerMove={move}
+            onPointerUp={end}
+            onPointerLeave={end}
+            onPointerCancel={end}
+          />
+          {empty && (
+            <p className="absolute inset-x-0 text-center text-xs pointer-events-none no-print" style={{ top: "42%", color: "var(--ink-faint)" }}>
+              {locked ? "Sem assinatura" : "Assine aqui com o dedo ou o mouse"}
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="mt-3">
+        <div style={{ height: 34 }} />
+        <p className="text-[10px] text-center" style={{ color: "var(--ink-soft)", borderTop: "1px solid var(--line)", paddingTop: 3 }}>
+          Assinatura manual (se necessário)
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function AssinaturaTab({ inspection, locked, onUpdate }) {
+  return (
+    <div className="card p-5">
+      <h3 className="display text-sm font-bold mb-1 flex items-center gap-2"><PenLine size={15} /> Assinatura digital</h3>
+      <p className="text-xs mb-4" style={{ color: "var(--ink-soft)" }}>Vistoriador, locador e locatário podem assinar direto na tela — com o dedo ou o mouse. Se preferir, deixe em branco para assinar à caneta depois de imprimir.</p>
+
+      <div className="border rounded-lg p-3 bg-white mb-4">
+        <p className="text-sm font-medium mb-2">Assinatura do vistoriador</p>
+        <SignaturePad label="Assinatura do vistoriador" value={inspection.signatures?.vistoriador} locked={locked || inspection.signatures?.vistoriadorSalva} onSave={(dataUrl) => { window._assinaturaTempVistoriador = dataUrl; }} />
+        <div className="flex gap-2 mt-2 flex-wrap">
+          <button onClick={(e) => { e.preventDefault(); const dados = window._assinaturaTempVistoriador; if (dados) { onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, vistoriador: dados, vistoriadorSalva: true } })); } }} type="button" className="btn-primary px-3 py-1.5 text-sm rounded">💾 Salvar</button>
+          <button onClick={(e) => { e.preventDefault(); onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, vistoriador: null, vistoriadorSalva: false } })); }} type="button" className="btn-ghost px-3 py-1.5 text-sm rounded text-red-600">🗑️ Limpar</button>
+          <button onClick={(e) => { e.preventDefault(); onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, vistoriadorSalva: false } })); }} type="button" className="btn-ghost px-3 py-1.5 text-sm rounded">✏️ Editar</button>
+        </div>
+      </div>
+
+      <div className="border rounded-lg p-3 bg-white mb-4">
+        <p className="text-sm font-medium mb-2">Assinatura do locador</p>
+        <SignaturePad label="Assinatura do locador" value={inspection.signatures?.locador} locked={locked || inspection.signatures?.locadorSalva} onSave={(dataUrl) => { window._assinaturaTempLocador = dataUrl; }} />
+        <div className="flex gap-2 mt-2 flex-wrap">
+          <button onClick={(e) => { e.preventDefault(); const dados = window._assinaturaTempLocador; if (dados) { onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locador: dados, locadorSalva: true } })); } }} type="button" className="btn-primary px-3 py-1.5 text-sm rounded">💾 Salvar</button>
+          <button onClick={(e) => { e.preventDefault(); onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locador: null, locadorSalva: false } })); }} type="button" className="btn-ghost px-3 py-1.5 text-sm rounded text-red-600">🗑️ Limpar</button>
+          <button onClick={(e) => { e.preventDefault(); onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locadorSalva: false } })); }} type="button" className="btn-ghost px-3 py-1.5 text-sm rounded">✏️ Editar</button>
+        </div>
+      </div>
+
+      <div className="border rounded-lg p-3 bg-white">
+        <p className="text-sm font-medium mb-2">Assinatura do locatário</p>
+        <SignaturePad label="Assinatura do locatário" value={inspection.signatures?.locatario} locked={locked || inspection.signatures?.locatarioSalva} onSave={(dataUrl) => { window._assinaturaTempLocatario = dataUrl; }} />
+        <div className="flex gap-2 mt-2 flex-wrap">
+          <button onClick={(e) => { e.preventDefault(); const dados = window._assinaturaTempLocatario; if (dados) { onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locatario: dados, locatarioSalva: true } })); } }} type="button" className="btn-primary px-3 py-1.5 text-sm rounded">💾 Salvar</button>
+          <button onClick={(e) => { e.preventDefault(); onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locatario: null, locatarioSalva: false } })); }} type="button" className="btn-ghost px-3 py-1.5 text-sm rounded text-red-600">🗑️ Limpar</button>
+          <button onClick={(e) => { e.preventDefault(); onUpdate((insp) => ({ ...insp, signatures: { ...insp.signatures, locatarioSalva: false } })); }} type="button" className="btn-ghost px-3 py-1.5 text-sm rounded">✏️ Editar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================================
 // RELATÓRIO E PDF
-// ============================================================
+// =====================================================================
 
 function mediaHtml(foto) {
   const cap = foto.date ? `<p style="font-size:10px;color:#a8828a;margin:5px 0 0;font-family:'JetBrains Mono',monospace">${escapeHtml(fmtDateTime(foto.date))}</p>` : "";
@@ -1511,7 +1976,9 @@ function buildReportHTML(inspection, logo) {
       </div>
       ${inspection.status === "Finalizada" ? `<div style="border:2.5px solid #3fa76b;color:#3fa76b;border-radius:999px;padding:8px 16px;font-weight:700;font-size:12px;transform:rotate(-6deg);white-space:nowrap">✓ FINALIZADA<br/>${escapeHtml(fmtDate(inspection.dataVistoria))}</div>` : ""}
     </div>
+
     ${capaHtml}
+
     <div class="section-card" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:13.5px">
       <div><p class="eyebrow">Data</p>${escapeHtml(fmtDate(inspection.dataVistoria))}</div>
       <div><p class="eyebrow">Vistoriador</p>${escapeHtml(inspection.vistoriador || "—")}</div>
@@ -1524,9 +1991,11 @@ function buildReportHTML(inspection, logo) {
       <div><p class="eyebrow">Inquilino</p>${escapeHtml(inspection.imovel.inquilino || "—")}</div>
       <div style="grid-column:1 / -1;padding-top:6px;border-top:1px dashed #eee0da"><p class="eyebrow">Resumo</p><strong>${inspection.ambientes.length}</strong> ambientes &nbsp;·&nbsp; <strong>${totalItens}</strong> itens ${avarias > 0 ? `&nbsp;·&nbsp; <span style="color:#b23e2a;font-weight:700">${avarias} avarias</span>` : ""}</div>
     </div>
+
     ${ambientesHtml}
     ${medidoresHtml}
     ${chavesHtml}
+
     <div style="display:flex;gap:20px;flex-wrap:wrap;border-top:1px dashed #ddd;padding-top:20px;margin-top:20px">
       ${sigHtml("Assinatura do vistoriador", inspection.signatures?.vistoriador)}
       ${sigHtml("Assinatura do locador", inspection.signatures?.locador)}
@@ -1835,135 +2304,64 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
   );
 }
 
-// ============================================================
-// OUTRAS FUNÇÕES UTILITÁRIAS
-// ============================================================
+// =====================================================================
+// FUNÇÕES UTILITÁRIAS
+// =====================================================================
 
-function fileToDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = reject;
-    r.readAsDataURL(file);
-  });
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-async function maybeCompressImage(file) {
-  if (!file.type.startsWith("image/") || file.type === "image/gif") return file;
-  try {
-    const { width, height } = await getImageDimensions(file);
-    const alreadySmallDim = Math.max(width, height) <= 1200;
-    const alreadySmallFile = file.size <= 250 * 1024;
-    const compressed = await compressImageFile(file);
-    return compressed.size < file.size ? compressed : file;
-  } catch {
-    return file;
-  }
-}
-
-function getImageDimensions(file) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve({ width: img.naturalWidth, height: img.naturalHeight });
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Não foi possível ler a imagem.")); };
-    img.src = url;
-  });
-}
-
-function compressImageFile(file, maxDim = 1200, quality = 0.8) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
-      const w = Math.max(1, Math.round(img.naturalWidth * scale));
-      const h = Math.max(1, Math.round(img.naturalHeight * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0, w, h);
-      canvas.toBlob((blob) => {
-          if (!blob) { reject(new Error("Falha ao comprimir imagem.")); return; }
-          resolve(new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }));
-        }, "image/jpeg", quality);
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Não foi possível ler a imagem.")); };
-    img.src = url;
-  });
-}
-
-function Lightbox({ src, marcas = null, onClose }) {
-  if (!src) return null;
-  
-  const pontos = Array.isArray(marcas) ? marcas : (marcas?.points || []);
-  const comentarioMarcacao = Array.isArray(marcas) ? "" : (marcas?.comentario || "");
-
-  return (
-    <div
-      className="no-print"
-      onClick={onClose}
-      style={{
-        position: "fixed", inset: 0, background: "rgba(10,11,16,0.92)", zIndex: 1000,
-        display: "flex", alignItems: "center", justifyContent: "center", padding: 24, cursor: "zoom-out",
-      }}
-    >
-      <button
-        onClick={onClose}
-        style={{ position: "absolute", top: 18, right: 18, width: 36, height: 36, borderRadius: 999, background: "rgba(255,255,255,0.12)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
-      >
-        <X size={18} />
-      </button>
-      <div className="relative" style={{ maxWidth: "94vw", maxHeight: "90vh" }}>
-        <img
-          src={getUrlFoto(src)}
-          alt=""
-          style={{ maxWidth: "94vw", maxHeight: "90vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 8 }}
-          onClick={(e) => e.stopPropagation()}
-        />
-        {pontos.map((p, i) => (
-          <div
-            key={i}
-            style={{
-              position: "absolute", left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-50%)",
-              width: 26, height: 26, borderRadius: "50%", border: "3px solid #E23B3B",
-              background: "rgba(226,59,59,0.25)", display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 12, fontWeight: 700, color: "#fff", cursor: "pointer"
-            }}
-            title={comentarioMarcacao || undefined}
-          >
-            {i + 1}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+function emptyChave() {
+  return { quantidade: "", observacoes: "", fotos: [] };
 }
 
 function buildExampleInspection() {
+  const ambientes = ambientesFromModel("Apartamento");
+  const cozinha = ambientes.find((a) => a.nome === "Cozinha");
+  if (cozinha) {
+    const pia = cozinha.itens.find((i) => i.nome === "Pia");
+    if (pia) {
+      pia.estado = "Regular";
+      pia.temDano = true;
+      pia.descricaoDano = "Pequeno vazamento identificado no sifão.";
+      pia.observacoes = "Recomenda-se reparo antes da próxima vistoria.";
+    }
+  }
+  const sala = ambientes.find((a) => a.nome === "Sala de Estar");
+  if (sala) {
+    const piso = sala.itens.find((i) => i.nome === "Piso");
+    if (piso) piso.observacoes = "Piso laminado em bom estado, sem riscos aparentes.";
+  }
+
   return {
     id: uid(),
     tipo: "Entrada",
     dataVistoria: todayISO(),
     vistoriador: "Vistoriador Exemplo",
     mobiliario: "Mobiliado",
+    capaFoto: null,
+    ambientes,
     imovel: {
       cep: "01310-100", endereco: "Avenida Paulista", numero: "1000", bairro: "Bela Vista",
       cidade: "São Paulo", estado: "SP", complemento: "Apto 52", metragem: "68 m²",
       proprietario: "Maria Souza", inquilino: "João Pereira", tipoImovel: "Apartamento",
     },
-    capaFoto: null,
-    ambientes: [],
-    medidores: { agua: {}, energia: {}, gas: {} },
-    chaves: { entrada: {}, garagem: {}, controle: {}, tags: {}, outras: [] },
-    signatures: { vistoriador: null, locador: null, locatario: null },
-    parecerTecnico: { texto: "", anexos: [] },
-    createdAt: Date.now(),
+    medidores: {
+      agua: { ativo: true, numero: "883421", leitura: "1245", unidade: "m³", concessionaria: "Sabesp", observacoes: "Leitura registrada no início da vistoria.", fotos: [] },
+      energia: { ativo: true, numero: "55219087", leitura: "08234", unidade: "kWh", concessionaria: "Enel", observacoes: "", fotos: [] },
+      gas: { ativo: false, numero: "", leitura: "", unidade: "", marca: "", observacoes: "", fotos: [] },
+    },
+    chaves: {
+      entrada: { quantidade: "2", observacoes: "Chaves tetra" },
+      garagem: { quantidade: "1", observacoes: "" },
+      controle: { quantidade: "1", observacoes: "Controle do portão da garagem" },
+      tags: { quantidade: "2", observacoes: "Tags de acesso à portaria" },
+      outras: [],
+    },
   };
 }
 
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}

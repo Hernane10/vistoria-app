@@ -2,6 +2,7 @@
 import { storage } from '../lib/storage';
 import { supabase } from '../components/supabaseClient';
 import { uploadFileToSupabase } from "./supabaseUpload";
+import { PROPERTY_MODELS } from '../App';
 
 const STORAGE_INDEX_KEY = "insp-index";
 const inspKey = (id: string) => `insp:${id}`;
@@ -178,14 +179,6 @@ export function enderecoCompleto(imovel) {
   return [linha1, linha2].filter(Boolean).join(" - ") + comp;
 }
 
-function fileToDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = reject;
-    r.readAsDataURL(file);
-  });
-}
 
 function compressImageFile(file, maxDim = 1200, quality = 0.8) {
   return new Promise((resolve, reject) => {
@@ -239,4 +232,17 @@ function getImageDimensions(file) {
 
 export function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+export function qrCodeUrl(text, size = 220) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`;
+}
+
+export function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
 }

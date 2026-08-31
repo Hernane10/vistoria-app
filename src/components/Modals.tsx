@@ -19,7 +19,26 @@ export function PromptModal({ title, placeholder = "", defaultValue = "", confir
   );
 }
 
-function Lightbox({ src, marcas = null, onClose }) {
+export function QrCodeModal({ inspection, onClose }) {
+  const text = fichaText(inspection);
+  return (
+    <div className="no-print" onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(10,11,16,0.85)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div className="card p-5" style={{ maxWidth: 320, width: "100%" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="display text-sm font-bold flex items-center gap-1.5"><QrCode size={16} /> QR do imóvel</h3>
+          <button onClick={onClose} className="btn-ghost rounded-full p-1.5"><X size={14} /></button>
+        </div>
+        <div className="flex justify-center mb-3">
+          <img src={qrCodeUrl(text)} alt="QR code do imóvel" style={{ width: 200, height: 200, borderRadius: 8, background: "#fff", padding: 8 }} />
+        </div>
+        <p className="text-xs mb-3" style={{ color: "var(--ink-soft)", whiteSpace: "pre-line" }}>{text}</p>
+        <p className="text-[10px]" style={{ color: "var(--ink-faint)" }}>Ao escanear, aparece a ficha resumida deste imóvel como texto.</p>
+      </div>
+    </div>
+  );
+}
+
+export function Lightbox({ src, marcas = null, onClose }) {
   if (!src) return null;
   
   const pontos = Array.isArray(marcas) ? marcas : (marcas?.points || []);
@@ -64,28 +83,4 @@ function Lightbox({ src, marcas = null, onClose }) {
       </div>
     </div>
   );
-}
-
-export function QrCodeModal({ inspection, onClose }) {
-  const text = fichaText(inspection);
-  return (
-    <div className="no-print" onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(10,11,16,0.85)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <div className="card p-5" style={{ maxWidth: 320, width: "100%" }} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="display text-sm font-bold flex items-center gap-1.5"><QrCode size={16} /> QR do imóvel</h3>
-          <button onClick={onClose} className="btn-ghost rounded-full p-1.5"><X size={14} /></button>
-        </div>
-        <div className="flex justify-center mb-3">
-          {/* CORRIGIDO: Faltava a tag <img> aqui */}
-          <img src={qrCodeUrl(text)} alt="QR code do imóvel" style={{ width: 200, height: 200, borderRadius: 8, background: "#fff", padding: 8 }} />
-        </div>
-        <p className="text-xs mb-3" style={{ color: "var(--ink-soft)", whiteSpace: "pre-line" }}>{text}</p>
-        <p className="text-[10px]" style={{ color: "var(--ink-faint)" }}>Ao escanear, aparece a ficha resumida deste imóvel como texto. Cole esse QR no imóvel ou salve a imagem para consulta rápida.</p>
-      </div>
-    </div>
-  );
-}
-
-export function qrCodeUrl(text, size = 220) {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`;
 }
