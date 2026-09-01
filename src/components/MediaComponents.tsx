@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { useRef, useState, useEffect, useContext } from "react";
-import { Camera, Paperclip, Video, X, Play, Target, Mic } from "lucide-react";
+import { Camera, Upload, Paperclip, Video, X, Play, Target, Mic } from "lucide-react";
 import { LightboxContext } from "../App";
 import { filesToPhotos, getUrlFoto, fmtDateTime } from "../utils/helpers";
 
@@ -208,19 +208,30 @@ function VideoRecorderModal({ onSave, onClose, onError }) {
 // 🖼️ PHOTO THUMB (Fotos e Marcações)
 // ============================================================
 
-export function PhotoThumb({ foto, size = 60, onRemove, onUpdate }) {
+export function PhotoThumb({ foto, size = 60, onRemove, onUpdate, onClick }) {
   const openLightbox = useContext(LightboxContext);
-  const openLightboxMarcas = useContext(LightboxContext);
   const [annotating, setAnnotating] = useState(false);
   const type = foto.type || "image";
   const marcas = foto.marcas || null;
   const pontos = Array.isArray(marcas) ? marcas : (marcas?.points || []);
   const comentarioMarcacao = Array.isArray(marcas) ? "" : (marcas?.comentario || "");
 
+  const handleClick = () => {
+    // Se foi passado um onClick customizado via prop, executa ele
+    if (onClick) {
+      onClick();
+      return;
+    }
+    // Caso contrário, usa o contexto padrão passando SRC e MARCAS juntos
+    const src = foto.url || foto.src || foto;
+    openLightbox(src, marcas);
+  };
+
+  // Se for vídeo
   if (type === "video") {
     return (
       <div className="photo-thumb" style={{ width: size, height: size, background: "#000" }}>
-        <video src={foto.src} className="w-full h-full object-cover cursor-zoom-in" onClick={() => openLightbox(foto.src)} muted />
+        <video src={foto.src || foto.url} className="w-full h-full object-cover cursor-zoom-in" onClick={handleClick} muted />
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <Play size={size > 70 ? 22 : 16} color="#fff" fill="#fff" style={{ opacity: 0.85 }} />
         </div>
@@ -234,10 +245,11 @@ export function PhotoThumb({ foto, size = 60, onRemove, onUpdate }) {
     );
   }
 
+  // Se for áudio
   if (type === "audio") {
     return (
       <div className="photo-thumb flex flex-col items-center justify-center gap-1 p-1" style={{ width: Math.max(size, 130), height: size, background: "var(--card-alt)" }}>
-        <audio src={foto.src} controls style={{ width: "100%", height: 28 }} />
+        <audio src={foto.src || foto.url} controls style={{ width: "100%", height: 28 }} />
         {foto.date && <span className="text-[8px] mono" style={{ color: "var(--ink-soft)" }}>{fmtDateTime(foto.date)}</span>}
         {onRemove && (
           <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="absolute top-0.5 right-0.5 rounded-full bg-black/60 text-white flex items-center justify-center" style={{ width: 16, height: 16 }}>
@@ -248,14 +260,15 @@ export function PhotoThumb({ foto, size = 60, onRemove, onUpdate }) {
     );
   }
 
+  // Imagem normal
   return (
     <div className="photo-thumb" style={{ width: size, height: size }}>
       <img
-        src={getUrlFoto(foto.src)}
+        src={getUrlFoto(foto.src || foto.url || foto)}
         alt=""
         loading="lazy"
         className="w-full h-full object-contain cursor-zoom-in"
-        onClick={() => { openLightbox(getUrlFoto(foto.src)); openLightboxMarcas(foto.marcas); }}
+        onClick={handleClick}
       />
       {pontos.map((p, i) => (
         <div
@@ -289,7 +302,7 @@ export function PhotoThumb({ foto, size = 60, onRemove, onUpdate }) {
       )}
       {annotating && (
         <PhotoAnnotator
-          src={foto.src}
+          src={foto.src || foto.url}
           marcas={marcas}
           onSave={(novasMarcas) => onUpdate(novasMarcas)}
           onClose={() => setAnnotating(false)}
@@ -298,7 +311,6 @@ export function PhotoThumb({ foto, size = 60, onRemove, onUpdate }) {
     </div>
   );
 }
-
 // ============================================================
 // 📝 TEXTO COM DITADO POR VOZ
 // ============================================================

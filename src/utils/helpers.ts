@@ -145,8 +145,9 @@ export function getUrlFoto(caminho) {
     if (caminho.src) caminho = caminho.src;
     else return '';
   }
-  if (caminho.startsWith('http')) return caminho;
-  if (caminho.startsWith('data:image')) return caminho;
+  // Se já é link completo ou base64, usa direto (sem converter!)
+  if (caminho.startsWith('http') || caminho.startsWith('data:image')) return caminho;
+  // Gera o link público do Supabase
   const { data } = supabase.storage.from('vistoria-fotos').getPublicUrl(caminho);
   return data?.publicUrl || caminho;
 }
@@ -176,13 +177,19 @@ export function emptyChave() {
 }
 
 export async function filesToPhotos(files) {
-  const now = new Date().toISOString();
-  const photos = await Promise.all(files.map(async (file) => {
-    let src = await fileToDataURL(file);
-    const publicUrl = await uploadFileToSupabase(file);
-    if (publicUrl) src = publicUrl;
-    return { src, date: now, type: mediaTypeOf(file), marcas: [] };
-  }));
+  const fileArray = Array.from(files);
+  const photos = await Promise.all(
+    fileArray.map(async (file) => {
+      const dataUrl = await fileToDataURL(file);
+      return {
+        id: uid(),
+        src: dataUrl,
+        url: dataUrl,
+        marcas: [], // ✅ Essencial para evitar 'undefined' ao tentar mapear pontos
+        createdAt: new Date().toISOString()
+      };
+    })
+  );
   return photos;
 }
 

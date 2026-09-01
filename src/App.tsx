@@ -21,7 +21,7 @@ todayISO, compressImageFile, fileToDataURL, getImageDimensions } from './utils/h
 import { MediaPicker, PhotoPicker, PhotoThumb, TextAreaWithDictation } from './components/MediaComponents';
 import { PromptModal, Lightbox } from './components/Modals';
 
-export const LightboxContext = createContext(() => {});
+export const LightboxContext = createContext((src: string, marcas?: any) => {});
 
 // =====================================================================
 // CONSTANTES E FUNÇÕES AUXILIARES
@@ -292,8 +292,17 @@ async function createInspection(data) {
 
   return (
     <div className={`app-root ${theme === "light" ? "theme-light" : ""}`}>
-    <LightboxContext.Provider value={(src, marcas) => { setLightboxSrc(src); setLightboxMarcas(marcas); }}>
-    <Lightbox src={lightboxSrc} marcas={lightboxMarcas} onClose={() => setLightboxSrc(null)} />
+   <LightboxContext.Provider 
+  value={(src, marcas = null) => { 
+    setLightboxSrc(src); 
+    setLightboxMarcas(marcas); 
+  }}
+>
+  <Lightbox 
+    src={lightboxSrc} 
+    marcas={lightboxMarcas} 
+    onClose={() => { setLightboxSrc(null); setLightboxMarcas(null); }} 
+  />
 
       {!loaded && (
         <div className="flex items-center justify-center py-24">
@@ -1545,16 +1554,17 @@ function QuantityStepper({ label, value, disabled, onChange }) {
 // =====================================================================
 
 function MedidorCard({ icon, title, data, locked, opcional, unidades, onChange }) {
-  const ativo = data.ativo;
-  const fotos = data.fotos || [];
+  const openLightbox = useContext(LightboxContext);
+  const ativo = data?.ativo ?? true;
+  const fotos = data?.fotos || [];
 
   async function handleAddPhotos(files) {
     const photos = await filesToPhotos(files);
-    onChange((d) => ({ ...d, fotos: [...d.fotos, ...photos] }));
+    onChange((d) => ({ ...d, fotos: [...(d.fotos || []), ...photos] }));
   }
 
   function removePhoto(idx) {
-    onChange((d) => ({ ...d, fotos: d.fotos.filter((_, i) => i !== idx) }));
+    onChange((d) => ({ ...d, fotos: (d.fotos || []).filter((_, i) => i !== idx) }));
   }
 
   return (
@@ -1565,7 +1575,12 @@ function MedidorCard({ icon, title, data, locked, opcional, unidades, onChange }
         </h3>
         {opcional && (
           <label className="flex items-center gap-2 text-xs cursor-pointer select-none" style={{ color: "var(--ink-soft)" }}>
-            <input type="checkbox" disabled={locked} checked={ativo} onChange={(e) => onChange((d) => ({ ...d, ativo: e.target.checked }))} />
+            <input 
+              type="checkbox" 
+              disabled={locked} 
+              checked={ativo} 
+              onChange={(e) => onChange((d) => ({ ...d, ativo: e.target.checked }))} 
+            />
             Este imóvel possui
           </label>
         )}
@@ -1578,30 +1593,73 @@ function MedidorCard({ icon, title, data, locked, opcional, unidades, onChange }
           <div className="grid grid-cols-2 gap-3 mb-3">
             <div>
               <label className="label block mb-1">Número / código</label>
-              <input disabled={locked} className="input w-full px-4 py-2 text-sm" placeholder="—" value={data.numero} onChange={(e) => onChange((d) => ({ ...d, numero: e.target.value }))} />
+              <input 
+                disabled={locked} 
+                className="input w-full px-4 py-2 text-sm" 
+                placeholder="—" 
+                value={data?.numero || ""} 
+                onChange={(e) => onChange((d) => ({ ...d, numero: e.target.value }))} 
+              />
             </div>
             <div>
               <label className="label block mb-1">Leitura atual</label>
-              <input disabled={locked} className="input w-full px-4 py-2 text-sm" placeholder="—" value={data.leitura} onChange={(e) => onChange((d) => ({ ...d, leitura: e.target.value }))} />
+              <input 
+                disabled={locked} 
+                className="input w-full px-4 py-2 text-sm" 
+                placeholder="—" 
+                value={data?.leitura || ""} 
+                onChange={(e) => onChange((d) => ({ ...d, leitura: e.target.value }))} 
+              />
             </div>
             <div>
               <label className="label block mb-1">Unidade</label>
-              <select disabled={locked} className="select w-full px-4 py-2 text-sm" value={data.unidade} onChange={(e) => onChange((d) => ({ ...d, unidade: e.target.value }))}>
+              <select 
+                disabled={locked} 
+                className="select w-full px-4 py-2 text-sm" 
+                value={data?.unidade || ""} 
+                onChange={(e) => onChange((d) => ({ ...d, unidade: e.target.value }))}
+              >
                 {(unidades || ["m³", "kWh"]).map((u) => <option key={u} value={u}>{u}</option>)}
                 <option value="">Outra / não informar</option>
               </select>
             </div>
             <div>
               <label className="label block mb-1">Concessionária</label>
-              <input disabled={locked} className="input w-full px-4 py-2 text-sm" placeholder="Ex: Sabesp, Enel, Comgás..." value={data.concessionaria || ""} onChange={(e) => onChange((d) => ({ ...d, concessionaria: e.target.value }))} />
+              <input 
+                disabled={locked} 
+                className="input w-full px-4 py-2 text-sm" 
+                placeholder="Ex: Sabesp, Enel, Comgás..." 
+                value={data?.concessionaria || ""} 
+                onChange={(e) => onChange((d) => ({ ...d, concessionaria: e.target.value }))} 
+              />
             </div>
           </div>
-          <TextAreaWithDictation disabled={locked} className="px-4 py-2.5 mb-3" rows={2} placeholder="Observação..." value={data.observacoes} onChange={(val) => onChange((d) => ({ ...d, observacoes: val }))} />
+
+          <TextAreaWithDictation 
+            disabled={locked} 
+            className="px-4 py-2.5 mb-3" 
+            rows={2} 
+            placeholder="Observação..." 
+            value={data?.observacoes || ""} 
+            onChange={(val) => onChange((d) => ({ ...d, observacoes: val }))} 
+          />
+
           <div className="flex items-center gap-2 flex-wrap mb-2">
             {fotos.map((foto, idx) => (
-              <PhotoThumb key={idx} foto={foto} size={56} onRemove={!locked ? () => removePhoto(idx) : null} onUpdate={!locked ? (marcas) => onChange((d) => ({ ...d, fotos: d.fotos.map((f, i) => (i === idx ? { ...f, marcas } : f)) })) : null} />
+              <PhotoThumb 
+                key={idx} 
+                foto={foto} 
+                size={56} 
+                onClick={() => openLightbox(foto.url || foto.src || foto, foto.marcas)}
+                onRemove={!locked ? () => removePhoto(idx) : null} 
+                onUpdate={!locked ? (marcas) => onChange((d) => ({ 
+                  ...d, 
+                  fotos: d.fotos.map((f, i) => (i === idx ? { ...f, marcas } : f)) 
+                })) : null} 
+              />
             ))}
           </div>
+
           {!locked && <PhotoPicker onAdd={handleAddPhotos} small />}
         </>
       )}
