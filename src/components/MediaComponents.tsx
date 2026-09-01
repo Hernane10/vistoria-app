@@ -210,6 +210,7 @@ function VideoRecorderModal({ onSave, onClose, onError }) {
 
 export function PhotoThumb({ foto, size = 60, onRemove, onUpdate }) {
   const openLightbox = useContext(LightboxContext);
+  const openLightboxMarcas = useContext(LightboxContext);
   const [annotating, setAnnotating] = useState(false);
   const type = foto.type || "image";
   const marcas = foto.marcas || null;
@@ -254,7 +255,7 @@ export function PhotoThumb({ foto, size = 60, onRemove, onUpdate }) {
         alt=""
         loading="lazy"
         className="w-full h-full object-contain cursor-zoom-in"
-        onClick={() => { setLightboxSrc(getUrlFoto(foto.src)); setLightboxMarcas(foto.marcas); }}
+        onClick={() => { openLightbox(getUrlFoto(foto.src)); openLightboxMarcas(foto.marcas); }}
       />
       {pontos.map((p, i) => (
         <div

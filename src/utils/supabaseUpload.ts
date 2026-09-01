@@ -2,7 +2,7 @@
 import { supabase } from '../components/supabaseClient';
 
 // Função que faz o upload de um arquivo (foto ou vídeo) para o Supabase
-export async function uploadFileToSupabase(file, pasta = 'vistoria_fotos') {
+export async function uploadFileToSupabase(file, pasta = 'vistoria-fotos') {
   if (!file) return null;
   
   // Gera um nome único para não sobrescrever fotos antigas

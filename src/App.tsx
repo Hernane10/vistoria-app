@@ -334,7 +334,26 @@ async function createInspection(data) {
           agendamentos={agendamentos}
           onAddAgendamento={addAgendamento}
           onRemoveAgendamento={removeAgendamento}
-          onComecar={(agendamento) => comecarVistoria(agendamento)}
+onComecar={(agendamento) => {
+  const insp = emptyInspection();
+  insp.dataVistoria = agendamento.date;
+  insp.imovel.endereco = agendamento.titulo || "";
+  
+  setInspections((prev) => [...prev, insp]);
+  setCurrentId(insp.id);
+  setView("new");
+  setSaveState("saving");
+  try {
+    // As funções storage estão sendo chamadas como "async" (só podem estar dentro de uma função async)
+    (async () => {
+      await storageSaveInspection(insp);
+      await storageSaveIndex(inspections.map((i) => i.id).concat(insp.id));
+      setSaveState("saved");
+    })();
+  } catch {
+    setSaveState("error");
+  }
+}}
           onAdiar={(id, novaData) => adiarAgendamento(id, novaData)}
           onExport={exportInspections}
           onImport={importInspections}
@@ -1535,6 +1554,7 @@ function QuantityStepper({ label, value, disabled, onChange }) {
 
 function MedidorCard({ icon, title, data, locked, opcional, unidades, onChange }) {
   const ativo = data.ativo;
+  const fotos = data.fotos || [];
 
   async function handleAddPhotos(files) {
     const photos = await filesToPhotos(files);
@@ -1586,7 +1606,7 @@ function MedidorCard({ icon, title, data, locked, opcional, unidades, onChange }
           </div>
           <TextAreaWithDictation disabled={locked} className="px-4 py-2.5 mb-3" rows={2} placeholder="Observação..." value={data.observacoes} onChange={(val) => onChange((d) => ({ ...d, observacoes: val }))} />
           <div className="flex items-center gap-2 flex-wrap mb-2">
-            {data.fotos.map((foto, idx) => (
+            {fotos.map((foto, idx) => (
               <PhotoThumb key={idx} foto={foto} size={56} onRemove={!locked ? () => removePhoto(idx) : null} onUpdate={!locked ? (marcas) => onChange((d) => ({ ...d, fotos: d.fotos.map((f, i) => (i === idx ? { ...f, marcas } : f)) })) : null} />
             ))}
           </div>
@@ -1655,11 +1675,11 @@ function ChavesTab({ chaves, locked, onChange }) {
   }
 
   function updateOutra(id, fn) {
-    onChange((c) => ({ ...c, autres: c.outras.map((o) => (o.id === id ? fn(o) : o)) }));
+    onChange((c) => ({ ...c, outras: c.outras.map((o) => (o.id === id ? fn(o) : o)) }));
   }
 
   function removeOutra(id) {
-    onChange((c) => ({ ...c, autres: c.outras.filter((o) => o.id !== id) }));
+    onChange((c) => ({ ...c, outras: c.outras.filter((o) => o.id !== id) }));
   }
 
   return (

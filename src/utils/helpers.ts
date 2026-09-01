@@ -147,7 +147,7 @@ export function getUrlFoto(caminho) {
   }
   if (caminho.startsWith('http')) return caminho;
   if (caminho.startsWith('data:image')) return caminho;
-  const { data } = supabase.storage.from('vistoria_fotos').getPublicUrl(caminho);
+  const { data } = supabase.storage.from('vistoria-fotos').getPublicUrl(caminho);
   return data?.publicUrl || caminho;
 }
 
