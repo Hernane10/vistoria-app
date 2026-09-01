@@ -195,14 +195,6 @@ export default function App() {
     setCustomModels((prev) => { const next = prev.filter((m) => m.id !== id); storage.set("custom-models", JSON.stringify(next)).catch(() => {}); return next; });
   }
 
-  // ✅ FUNÇÃO CORRETA (com a data!)
-  function addAgendamento(date, titulo, observacao) {
-    setAgendamentos((prev) => {
-      const next = [...prev, { id: uid(), date, titulo, observacao }];
-      storage.set("agendamentos", JSON.stringify(next)).catch(() => {});
-      return next;
-    });
-  }
 
   // ✅ FUNÇÃO DE EXCLUSÃO
   function removeAgendamento(id) {
@@ -300,7 +292,7 @@ async function createInspection(data) {
 
   return (
     <div className={`app-root ${theme === "light" ? "theme-light" : ""}`}>
-    <LightboxContext.Provider value={(src) => { setLightboxSrc(src); setLightboxMarcas(null); }}>
+    <LightboxContext.Provider value={(src, marcas) => { setLightboxSrc(src); setLightboxMarcas(marcas); }}>
     <Lightbox src={lightboxSrc} marcas={lightboxMarcas} onClose={() => setLightboxSrc(null)} />
 
       {!loaded && (
