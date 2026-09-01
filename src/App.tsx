@@ -119,11 +119,51 @@ export default function App() {
   const [pendingModel, setPendingModel] = useState(null);
   const [customModels, setCustomModels] = useState([]);
   const [agendamentos, setAgendamentos] = useState([]);
-  const [lightboxSrc, setLightboxSrc] = useState(null);
-  const [lightboxMarcas, setLightboxMarcas] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [saveState, setSaveState] = useState("idle");
+  const [lightboxSrc, setLightboxSrc] = useState(null);
+  const [lightboxMarcas, setLightboxMarcas] = useState(null);
   const saveTimer = useRef(null);
+
+  function addAgendamento(date, titulo, observacao) {
+    setAgendamentos((prev) => {
+      const next = [...prev, { id: uid(), date, titulo, observacao }];
+      storage.set("agendamentos", JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }
+
+  function removeAgendamento(id) {
+    setAgendamentos((prev) => {
+      const next = prev.filter((a) => a.id !== id);
+      storage.set("agendamentos", JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }
+
+  async function createInspection(data) {
+    const insp = { ...emptyInspection(), ...data };
+    const next = [insp, ...inspections];
+    setInspections(next);
+    setCurrentId(insp.id);
+    setView("detail");
+    setSaveState("saving");
+    try {
+      await storageSaveInspection(insp);
+      await storageSaveIndex(next.map((i) => i.id));
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    }
+  }
+
+   // Função que cria a vistoria a partir do agendamento
+  function comecarVistoria(agendamento) {
+    const insp = emptyInspection();
+    insp.dataVistoria = agendamento.date;
+    insp.imovel.endereco = agendamento.titulo || "";
+    createInspection(insp);
+  }
 
   const current = inspections.find((i) => i.id === currentId) || null;
 
@@ -155,12 +195,22 @@ export default function App() {
     setCustomModels((prev) => { const next = prev.filter((m) => m.id !== id); storage.set("custom-models", JSON.stringify(next)).catch(() => {}); return next; });
   }
 
+  // ✅ FUNÇÃO CORRETA (com a data!)
   function addAgendamento(date, titulo, observacao) {
-    setAgendamentos((prev) => { const next = [...prev, { id: uid(), date, titulo, observacao }]; storage.set("agendamentos", JSON.stringify(next)).catch(() => {}); return next; });
+    setAgendamentos((prev) => {
+      const next = [...prev, { id: uid(), date, titulo, observacao }];
+      storage.set("agendamentos", JSON.stringify(next)).catch(() => {});
+      return next;
+    });
   }
 
+  // ✅ FUNÇÃO DE EXCLUSÃO
   function removeAgendamento(id) {
-    setAgendamentos((prev) => { const next = prev.filter((a) => a.id !== id); storage.set("agendamentos", JSON.stringify(next)).catch(() => {}); return next; });
+    setAgendamentos((prev) => {
+      const next = prev.filter((a) => a.id !== id);
+      storage.set("agendamentos", JSON.stringify(next)).catch(() => {});
+      return next;
+    });
   }
 
   function toggleCalendar() {
@@ -184,15 +234,21 @@ export default function App() {
     });
   }
 
-  async function createInspection(data) {
-    const insp = { ...emptyInspection(), ...data };
-    const next = [insp, ...inspections];
-    setInspections(next);
-    setCurrentId(insp.id);
-    setView("detail");
-    setSaveState("saving");
-    try { await storageSaveInspection(insp); await storageSaveIndex(next.map((i) => i.id)); setSaveState("saved"); } catch { setSaveState("error"); }
+async function createInspection(data) {
+  const insp = { ...emptyInspection(), ...data };
+  const next = [insp, ...inspections];
+  setInspections(next);
+  setCurrentId(insp.id);
+  setView("detail");
+  setSaveState("saving");
+  try {
+    await storageSaveInspection(insp);
+    await storageSaveIndex(next.map((i) => i.id));
+    setSaveState("saved");
+  } catch {
+    setSaveState("error");
   }
+}
 
   async function deleteInspection(id) {
     const next = inspections.filter((i) => i.id !== id);
@@ -244,8 +300,8 @@ export default function App() {
 
   return (
     <div className={`app-root ${theme === "light" ? "theme-light" : ""}`}>
-      <LightboxContext.Provider value={(src) => { setLightboxSrc(src); setLightboxMarcas(null); }}>
-      <Lightbox src={lightboxSrc} marcas={lightboxMarcas} onClose={() => setLightboxSrc(null)} />
+    <LightboxContext.Provider value={(src) => { setLightboxSrc(src); setLightboxMarcas(null); }}>
+    <Lightbox src={lightboxSrc} marcas={lightboxMarcas} onClose={() => setLightboxSrc(null)} />
 
       {!loaded && (
         <div className="flex items-center justify-center py-24">
@@ -278,10 +334,11 @@ export default function App() {
           agendamentos={agendamentos}
           onAddAgendamento={addAgendamento}
           onRemoveAgendamento={removeAgendamento}
+          onComecar={(agendamento) => comecarVistoria(agendamento)}
+          onAdiar={(id, novaData) => adiarAgendamento(id, novaData)}
           onExport={exportInspections}
           onImport={importInspections}
-        />
-        </div>
+        />        </div>
       )}
 
       {view === "new" && (
@@ -342,12 +399,13 @@ function SaveIndicator({ state }) {
 const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const DIAS_SEMANA = ["D", "S", "T", "Q", "Q", "S", "S"];
 
-function CalendarWidget({ inspections, dateFilter, setDateFilter, onHide, agendamentos, onAddAgendamento, onRemoveAgendamento }) {
+function CalendarWidget({ inspections, dateFilter, setDateFilter, onHide, agendamentos, onAddAgendamento, onRemoveAgendamento, onComecar, onAdiar }) {
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() };
   });
   const [schedulingDate, setSchedulingDate] = useState(null);
+  const [agendamentoExistente, setAgendamentoExistente] = useState(null);
 
   const countsByDate = {};
   inspections.forEach((i) => {
@@ -427,9 +485,9 @@ function CalendarWidget({ inspections, dateFilter, setDateFilter, onHide, agenda
           const isToday = iso === todayIso;
           const isSelected = dateFilter === iso;
           return (
-            <div key={idx} className="relative">
+            <div key={idx}>
               <button
-                onClick={() => setDateFilter(isSelected ? null : iso)}
+                onClick={() => { setDateFilter(isSelected ? null : iso); setSchedulingDate(iso); setAgendamentoExistente(null); }}
                 className="w-full rounded-lg flex flex-col items-center justify-center gap-0.5 py-1.5 text-xs"
                 style={{
                   background: isSelected ? "var(--accent)" : agenda.length > 0 ? "var(--warn-bg)" : "transparent",
@@ -443,14 +501,6 @@ function CalendarWidget({ inspections, dateFilter, setDateFilter, onHide, agenda
                   {agenda.length > 0 && <Calendar size={9} style={{ color: isSelected ? "#F3E4E7" : "var(--warn)" }} />}
                 </span>
               </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setSchedulingDate(iso); }}
-                className="absolute rounded-full flex items-center justify-center no-print"
-                title="Agendar vistoria"
-                style={{ top: -3, right: -3, width: 14, height: 14, background: "var(--card-alt)", border: "1px solid var(--line)", color: "var(--ink-soft)", fontSize: 10, lineHeight: 1 }}
-              >
-                +
-              </button>
             </div>
           );
         })}
@@ -461,12 +511,17 @@ function CalendarWidget({ inspections, dateFilter, setDateFilter, onHide, agenda
           <p className="label mb-2">Próximos agendamentos</p>
           <div className="grid gap-1.5">
             {proximos.map((a) => (
-              <div key={a.id} className="flex items-center gap-2 text-xs px-2.5 py-2 rounded-lg" style={{ background: "var(--warn-bg)" }}>
+              <button
+                key={a.id}
+                onClick={() => { setSchedulingDate(a.date); setAgendamentoExistente(a); }}
+                className="flex items-center gap-2 text-xs px-2.5 py-2 rounded-lg w-full text-left"
+                style={{ background: "var(--warn-bg)" }}
+              >
                 <Calendar size={12} style={{ color: "var(--warn)" }} className="shrink-0" />
                 <span className="font-semibold mono shrink-0">{fmtDate(a.date)}</span>
                 <span className="flex-1 truncate" style={{ color: "var(--ink-strong)" }}>{a.titulo}</span>
-                <button onClick={() => onRemoveAgendamento(a.id)} className="btn-ghost rounded-full p-1 shrink-0"><X size={11} /></button>
-              </div>
+                <span className="text-[9px] font-bold" style={{ color: "var(--warn)" }}>Ver</span>
+              </button>
             ))}
           </div>
         </div>
@@ -475,36 +530,18 @@ function CalendarWidget({ inspections, dateFilter, setDateFilter, onHide, agenda
       {schedulingDate && (
         <AgendarModal
           date={schedulingDate}
-          onClose={() => setSchedulingDate(null)}
-          onSave={(titulo, observacao) => { onAddAgendamento(schedulingDate, titulo, observacao); setSchedulingDate(null); }}
+          agendamentoExistente={agendamentoExistente}
+          onClose={() => { setSchedulingDate(null); setAgendamentoExistente(null); }}
+          onSave={(titulo, observacao, novaData) => {
+            onAddAgendamento(novaData, titulo, observacao);
+            setSchedulingDate(null);
+            setAgendamentoExistente(null);
+          }}
+          onDelete={(id) => onRemoveAgendamento(id)}
+          onComecar={() => onComecar && onComecar(agendamentoExistente)}
+          onAdiar={(id, novaData) => onAdiar && onAdiar(id, novaData)}
         />
-      )}
-    </div>
-  );
-}
-
-function AgendarModal({ date, onClose, onSave }) {
-  const [titulo, setTitulo] = useState("");
-  const [observacao, setObservacao] = useState("");
-
-  return (
-    <div className="no-print modal-fade" style={{ position: "fixed", inset: 0, background: "rgba(10,11,16,0.85)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
-      <div className="card modal-pop p-5" style={{ maxWidth: 360, width: "100%" }} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="display text-sm font-bold flex items-center gap-1.5"><Calendar size={15} /> Agendar vistoria</h3>
-          <button onClick={onClose} className="btn-ghost rounded-full p-1.5"><X size={14} /></button>
-        </div>
-        <p className="text-xs mb-3" style={{ color: "var(--ink-soft)" }}>Data: <strong style={{ color: "var(--ink-strong)" }}>{fmtDate(date)}</strong></p>
-        <label className="label block mb-1.5">Título / endereço</label>
-        <input autoFocus className="input w-full px-4 py-2.5 text-sm mb-3" placeholder="Ex: Vistoria de saída - Rua X, 123" value={titulo} onChange={(e) => setTitulo(e.target.value)} />
-        <label className="label block mb-1.5">Observação (opcional)</label>
-        <textarea className="textarea w-full px-4 py-2.5 text-sm mb-4" rows={2} placeholder="Detalhes do agendamento..." value={observacao} onChange={(e) => setObservacao(e.target.value)} />
-        <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="btn-ghost rounded-full px-4 py-2 text-sm">Cancelar</button>
-          <button disabled={!titulo.trim()} onClick={() => onSave(titulo.trim(), observacao.trim())} className="btn-primary rounded-full px-4 py-2 text-sm">Agendar</button>
-        </div>
-      </div>
-    </div>
+      )}    </div>
   );
 }
 
@@ -512,7 +549,7 @@ function AgendarModal({ date, onClose, onSave }) {
 // LISTA DE VISTORIAS
 // =====================================================================
 
-function ListView({ inspections, allInspections, query, setQuery, dateFilter, setDateFilter, calendarVisible, toggleCalendar, onOpen, onNew, onUseModel, onGenerateExample, onDelete, saveState, customModels, onCreateCustomModel, onDeleteCustomModel, theme, toggleTheme, agendamentos, onAddAgendamento, onRemoveAgendamento, onExport, onImport }) {
+function ListView({ inspections, allInspections, query, setQuery, dateFilter, setDateFilter, calendarVisible, toggleCalendar, onOpen, onNew, onUseModel, onGenerateExample, onDelete, saveState, customModels, onCreateCustomModel, onDeleteCustomModel, theme, toggleTheme, agendamentos, onAddAgendamento, onRemoveAgendamento, onComecar, onAdiar, onExport, onImport }) {
   const [tab, setTab] = useState("vistorias");
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState("");
@@ -575,7 +612,6 @@ function ListView({ inspections, allInspections, query, setQuery, dateFilter, se
       </div>
 
       {tab === "ajuda" && <AjudaTab />}
-
       {tab === "modelos" && (
         <ModelosTab
           onUseModel={onUseModel}
@@ -596,6 +632,8 @@ function ListView({ inspections, allInspections, query, setQuery, dateFilter, se
             agendamentos={agendamentos}
             onAddAgendamento={onAddAgendamento}
             onRemoveAgendamento={onRemoveAgendamento}
+            onComecar={onComecar}
+            onAdiar={onAdiar}
           />
         ) : (
           <button onClick={toggleCalendar} className="btn-ghost rounded-full px-4 py-2 text-xs flex items-center gap-2 mb-6">
@@ -1055,7 +1093,6 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
           <button onClick={() => setTab("ambientes")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "ambientes" ? "active" : ""}`}><Layers size={14} /> Ambientes</button>
           <button onClick={() => setTab("medidores")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "medidores" ? "active" : ""}`}><Gauge size={14} /> Medidores</button>
           <button onClick={() => setTab("chaves")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "chaves" ? "active" : ""}`}><KeyRound size={14} /> Chaves</button>
-          <button onClick={() => setTab("comparar")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "comparar" ? "active" : ""}`}><GitCompare size={14} /> Comparar</button>
           <button onClick={() => setTab("parecer")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "parecer" ? "active" : ""}`}><FileText size={14} /> Parecer Técnico</button>
           <button onClick={() => setTab("assinatura")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "assinatura" ? "active" : ""}`}><PenLine size={14} /> Assinatura Digital</button>
           <button onClick={() => setTab("pdf")} className={`tab-btn px-4 py-2 text-sm flex items-center gap-1.5 ${tab === "pdf" ? "active" : ""}`}><Printer size={14} /> PDF</button>
@@ -1079,9 +1116,6 @@ function DetailView({ inspection, onBack, onUpdate, customModels = [], allInspec
         )}
         {tab === "chaves" && (
           <ChavesTab chaves={inspection.chaves} locked={locked} onChange={(fn) => onUpdate((insp) => ({ ...insp, chaves: fn(insp.chaves) }))} />
-        )}
-        {tab === "comparar" && (
-          <ComparacaoTab inspection={inspection} allInspections={allInspections} />
         )}
         {tab === "parecer" && (
           <ParecerTecnicoTab parecerTecnico={inspection.parecerTecnico} locked={locked} onChange={(fn) => onUpdate((insp) => ({ ...insp, parecerTecnico: fn(insp.parecerTecnico || { texto: "", anexos: [] }) }))} />
@@ -2418,4 +2452,74 @@ function buildExampleInspection() {
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function AgendarModal({ date, onClose, onSave, onDelete, onComecar, onAdiar, agendamentoExistente }) {
+  const [titulo, setTitulo] = useState(agendamentoExistente?.titulo || "");
+  const [observacao, setObservacao] = useState(agendamentoExistente?.observacao || "");
+  const [novaData, setNovaData] = useState(agendamentoExistente?.date || date);
+  const [isSaving, setIsSaving] = useState(false);
+
+  return (
+    <div className="no-print modal-fade" style={{ position: "fixed", inset: 0, background: "rgba(10,11,16,0.85)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div className="card modal-pop p-5" style={{ maxWidth: 400, width: "100%" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="display text-sm font-bold flex items-center gap-1.5">
+            <Calendar size={15} /> {agendamentoExistente ? "Gerenciar agendamento" : "Agendar vistoria"}
+          </h3>
+          <button onClick={onClose} className="btn-ghost rounded-full p-1.5"><X size={14} /></button>
+        </div>
+
+        {agendamentoExistente && agendamentoExistente.observacao && (
+          <p className="text-xs mb-3 rounded-xl px-3 py-2" style={{ background: "var(--card-alt)", color: "var(--ink-soft)" }}>
+            <strong>Observação:</strong> {agendamentoExistente.observacao}
+          </p>
+        )}
+
+        <p className="text-xs mb-3" style={{ color: "var(--ink-soft)" }}>Data: <strong style={{ color: "var(--ink-strong)" }}>{fmtDate(novaData)}</strong></p>
+
+        <label className="label block mb-1.5">Título / endereço</label>
+        <input autoFocus className="input w-full px-4 py-2.5 text-sm mb-3" placeholder="Ex: Vistoria de saída - Rua X, 123" value={titulo} onChange={(e) => setTitulo(e.target.value)} />
+
+        <label className="label block mb-1.5">Data do agendamento</label>
+        <input type="date" className="input w-full px-4 py-2.5 text-sm mb-3" value={novaData} onChange={(e) => setNovaData(e.target.value)} />
+
+        <label className="label block mb-1.5">Observação (opcional)</label>
+        <textarea className="textarea w-full px-4 py-2.5 text-sm mb-4" rows={2} placeholder="Detalhes do agendamento..." value={observacao} onChange={(e) => setObservacao(e.target.value)} />
+
+        {!agendamentoExistente && (
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className="btn-ghost rounded-full px-4 py-2 text-sm">Cancelar</button>
+            <button disabled={!titulo.trim() || isSaving} onClick={() => { setIsSaving(true); onSave(titulo.trim(), observacao.trim(), novaData); }} className="btn-primary rounded-full px-4 py-2 text-sm">Agendar</button>
+          </div>
+        )}
+
+        {agendamentoExistente && (
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => { onComecar(); onClose(); }}
+              className="btn-primary rounded-full px-4 py-2.5 text-sm flex items-center justify-center gap-2"
+            >
+              <Plus size={16} /> Começar vistoria agora
+            </button>
+            <div className="flex gap-2 justify-between mt-2">
+              <button
+                onClick={() => { onAdiar(agendamentoExistente.id, novaData); onClose(); }}
+                className="btn-secondary rounded-full px-4 py-2 text-sm"
+              >
+                <Calendar size={14} /> Adiar
+              </button>
+              <button
+                onClick={() => { onDelete(agendamentoExistente.id); onClose(); }}
+                className="btn-ghost rounded-full px-4 py-2 text-sm"
+                style={{ color: "var(--bad)" }}
+              >
+                <X size={14} /> Excluir
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
