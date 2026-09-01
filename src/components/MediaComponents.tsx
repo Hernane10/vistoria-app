@@ -217,15 +217,14 @@ export function PhotoThumb({ foto, size = 60, onRemove, onUpdate, onClick }) {
   const comentarioMarcacao = Array.isArray(marcas) ? "" : (marcas?.comentario || "");
 
   const handleClick = () => {
-    // Se foi passado um onClick customizado via prop, executa ele
-    if (onClick) {
-      onClick();
-      return;
-    }
-    // Caso contrário, usa o contexto padrão passando SRC e MARCAS juntos
-    const src = foto.url || foto.src || foto;
-    openLightbox(src, marcas);
-  };
+  // Se foi passado um onClick customizado via prop, executa ele
+  if (onClick) {
+    onClick();
+    return;
+  }
+  // Envia o objeto COMPLETO da foto (com src, url, date, marcas)
+  openLightbox(foto, foto.marcas);
+};
 
   // Se for vídeo
   if (type === "video") {

@@ -1969,19 +1969,57 @@ function AssinaturaTab({ inspection, locked, onUpdate }) {
 // =====================================================================
 
 function mediaHtml(foto) {
-  const cap = foto.date ? `<p style="font-size:10px;color:#a8828a;margin:5px 0 0;font-family:'JetBrains Mono',monospace">${escapeHtml(fmtDateTime(foto.date))}</p>` : "";
+  if (!foto) return "";
+
+  const rawDate = foto.createdAt || foto.timestamp || foto.date || foto.data;
+  const formattedDate = rawDate ? fmtDateTime(rawDate) : "";
+  const cap = formattedDate 
+    ? `<p style="font-size:9.5px;color:#8a6a72;margin:3px 0 0;font-family:'JetBrains Mono',monospace;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(formattedDate)}</p>` 
+    : "";
+
   if (foto.type === "video") {
-    return `<div class="media-card"><video src="${foto.src}" controls style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:#000;display:block"></video><div style="padding:6px 8px">${cap || '<span style="font-size:10px;color:#a8828a">Vídeo</span>'}</div></div>`;
+    return `<div class="media-card"><video src="${foto.src || foto.url}" controls style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:#000;display:block"></video><div style="padding:6px 8px">${cap || '<span style="font-size:10px;color:#a8828a">Vídeo</span>'}</div></div>`;
   }
   if (foto.type === "audio") {
-    return `<div class="media-card" style="width:180px"><div style="padding:10px 10px 4px"><audio src="${foto.src}" controls style="width:100%"></audio></div><div style="padding:0 10px 8px">${cap || '<span style="font-size:10px;color:#a8828a">Áudio</span>'}</div></div>`;
+    return `<div class="media-card" style="width:180px"><div style="padding:10px 10px 4px"><audio src="${foto.src || foto.url}" controls style="width:100%"></audio></div><div style="padding:0 10px 8px">${cap || '<span style="font-size:10px;color:#a8828a">Áudio</span>'}</div></div>`;
   }
+
   const marcas = foto.marcas || null;
   const pontos = Array.isArray(marcas) ? marcas : (marcas?.points || []);
-  const comentarioMarcacao = Array.isArray(marcas) ? "" : (marcas?.comentario || "");
-  const marcasHtml = pontos.map((p, i) => `<div style="position:absolute;left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%);width:18px;height:18px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 2px #E23B3B;background:#E23B3B;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center">${i + 1}</div>`).join("");
-  const comentarioHtml = comentarioMarcacao ? `<p style="font-size:10.5px;color:#b23e2a;margin:4px 0 0;font-weight:600">⚠ ${escapeHtml(comentarioMarcacao)}</p>` : "";
-  return `<div class="media-card"><div style="position:relative;width:100%;height:120px"><img src="${getUrlFoto(foto.src)}" class="zoomable-photo" loading="lazy" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;cursor:zoom-in;display:block" />${marcasHtml}</div><div style="padding:6px 8px">${cap}${comentarioHtml}</div></div>`;
+  const comentarioMarcacao = foto.observacao || foto.legenda || (Array.isArray(marcas) ? "" : (marcas?.comentario || ""));
+
+  const marcasHtml = pontos.map((p, i) => `
+    <div style="position:absolute;left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%);width:18px;height:18px;border-radius:50%;border:2px solid #ffffff;box-shadow:0 0 0 1.5px #E23B3B, 0 2px 4px rgba(0,0,0,0.3);background:#E23B3B;color:#ffffff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;z-index:2;pointer-events:none">
+      ${i + 1}
+    </div>
+  `).join("");
+
+  const comentarioHtml = comentarioMarcacao 
+    ? `<p style="font-size:10px;color:#b23e2a;margin:4px 0 0;font-weight:600;line-height:1.3;word-break:break-word">⚠ ${escapeHtml(comentarioMarcacao)}</p>` 
+    : "";
+
+  const serializedMarks = escapeHtml(JSON.stringify(pontos));
+
+  return `
+    <div class="media-card" style="display:flex;flex-direction:column">
+      <div style="position:relative;width:100%;height:120px;background:#f0e6e1;overflow:hidden">
+        <img 
+          src="${getUrlFoto(foto.src || foto.url)}" 
+          class="zoomable-photo" 
+          data-marcas="${serializedMarks}"
+          data-comentario="${escapeHtml(comentarioMarcacao)}"
+          data-date="${escapeHtml(formattedDate)}"
+          loading="lazy" 
+          style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;cursor:zoom-in;display:block" 
+        />
+        ${marcasHtml}
+      </div>
+      <div style="padding:6px 8px;flex:1;background:#ffffff">
+        ${cap}
+        ${comentarioHtml}
+      </div>
+    </div>
+  `;
 }
 
 function buildReportHTML(inspection, logo) {
@@ -1989,14 +2027,14 @@ function buildReportHTML(inspection, logo) {
   const avarias = inspection.ambientes.reduce((a, amb) => a + amb.itens.filter((it) => it.temDano).length, 0);
 
   const medidoresList = [
-    { label: "Água", d: inspection.medidores.agua },
-    { label: "Energia", d: inspection.medidores.energia },
-    { label: "Gás", d: inspection.medidores.gas },
-  ].filter((m) => m.d.ativo);
+    { label: "Água", d: inspection.medidores?.agua },
+    { label: "Energia", d: inspection.medidores?.energia },
+    { label: "Gás", d: inspection.medidores?.gas },
+  ].filter((m) => m.d && m.d.ativo);
 
   const chavesList = [
-    ...CHAVE_TIPOS.map((t) => ({ label: t.label, ...inspection.chaves[t.key] })),
-    ...inspection.chaves.outras.map((o) => ({ label: o.nome, ...o })),
+    ...CHAVE_TIPOS.map((t) => ({ label: t.label, ...(inspection.chaves?.[t.key] || {}) })),
+    ...(inspection.chaves?.outras || []).map((o) => ({ label: o.nome, ...o })),
   ].filter((c) => c.quantidade || c.observacoes || (c.fotos || []).length);
 
   const estadoColors = {
@@ -2008,15 +2046,18 @@ function buildReportHTML(inspection, logo) {
   const ambientesHtml = inspection.ambientes.map((amb, ambIdx) => {
     const fotosAmbienteHtml = (amb.fotos || []).length
       ? `<div style="margin-bottom:14px"><p class="eyebrow">Fotos/vídeos gerais do ambiente</p><div class="media-grid">${amb.fotos.map(mediaHtml).join("")}</div></div>` : "";
+    
     const itensHtml = amb.itens.map((item) => {
       const camposPreenchidos = ITEM_FIELD_DEFS.filter((f) => (item.campos || {})[f.key]);
       const estadoLabel = item.semTeste ? "Sem teste" : item.estado;
       const [bg, fg] = estadoColors[estadoLabel] || estadoColors["Sem teste"];
+      
       const camposLine = camposPreenchidos.length
         ? `<p class="meta-line">${camposPreenchidos.map((f) => `<strong>${f.label}:</strong> ${escapeHtml(item.campos[f.key])}`).join(" &nbsp;·&nbsp; ")}</p>` : "";
       const obsLine = item.observacoes ? `<p class="obs-line">${escapeHtml(item.observacoes)}</p>` : "";
-      const danoLine = item.temDano && item.descricaoDano ? `<p class="dano-line">⚠ Avaria: ${escapeHtml(item.descricaoDano)}</p>` : "";
+      const danoLine = item.temDano && item.descricaoDano ? `<p class="dano-line">⚠ Avaria do item: ${escapeHtml(item.descricaoDano)}</p>` : "";
       const fotosHtml = (item.fotos || []).length ? `<div class="media-grid" style="margin-top:8px">${item.fotos.map(mediaHtml).join("")}</div>` : "";
+      
       return `
         <div class="item-card">
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
@@ -2027,6 +2068,7 @@ function buildReportHTML(inspection, logo) {
           ${camposLine}${obsLine}${danoLine}${fotosHtml}
         </div>`;
     }).join("");
+
     return `
       <div class="section-card">
         <h2 class="section-title"><span class="section-num">${String(ambIdx + 1).padStart(2, "0")}</span>${escapeHtml(amb.nome)}</h2>
@@ -2066,7 +2108,7 @@ function buildReportHTML(inspection, logo) {
 
   const capaHtml = inspection.capaFoto ? `
     <div style="margin-bottom:22px">
-      <img src="${getUrlFoto(inspection.capaFoto.src)}" class="zoomable-photo" style="width:100%;max-height:300px;object-fit:cover;border-radius:14px;cursor:zoom-in;display:block;box-shadow:0 4px 16px rgba(0,0,0,0.12)" />
+      <img src="${getUrlFoto(inspection.capaFoto.src || inspection.capaFoto)}" class="zoomable-photo" style="width:100%;max-height:300px;object-fit:cover;border-radius:14px;cursor:zoom-in;display:block;box-shadow:0 4px 16px rgba(0,0,0,0.12)" />
     </div>` : "";
 
   const sigHtml = (label, src) => `
@@ -2100,27 +2142,41 @@ function buildReportHTML(inspection, logo) {
   .meta-line { font-size: 12px; color: #7a5a60; margin: 4px 0; line-height: 1.5; }
   .obs-line { font-size: 12.5px; color: #3a2a2e; margin: 6px 0; line-height: 1.5; }
   .dano-line { font-size: 12.5px; color: #b23e2a; font-weight: 600; margin: 6px 0; line-height: 1.5; }
-  .media-grid { display: flex; gap: 10px; flex-wrap: wrap; }
-  .media-card { width: 130px; border: 1px solid #eee0da; border-radius: 10px; overflow: hidden; background: #fff; box-shadow: 0 2px 6px rgba(40,20,25,0.06); break-inside: avoid; }
+  .media-grid { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-start; align-items: flex-start; }
+  .media-card { width: 130px; border: 1px solid #eee0da; border-radius: 10px; overflow: hidden; background: #fff; box-shadow: 0 2px 6px rgba(40,20,25,0.06); break-inside: avoid; page-break-inside: avoid; flex-shrink: 0; }
+  
+  /* Lightbox Modal de Relatório */
   #photo-lightbox { display: none; position: fixed; inset: 0; background: rgba(10,11,16,0.92); z-index: 1000; align-items: center; justify-content: center; padding: 24px; cursor: zoom-out; }
   #photo-lightbox.open { display: flex; }
-  #photo-lightbox img { max-width: 94vw; max-height: 90vh; object-fit: contain; border-radius: 8px; }
-  #photo-lightbox button { position: absolute; top: 18px; right: 18px; width: 36px; height: 36px; border-radius: 999px; background: rgba(255,255,255,0.15); color: #fff; border: none; font-size: 18px; cursor: pointer; }
+  #photo-lightbox-container { position: relative; max-width: 94vw; max-height: 90vh; }
+  #photo-lightbox img { max-width: 94vw; max-height: 90vh; object-fit: contain; border-radius: 8px; display: block; }
+  #photo-lightbox button { position: absolute; top: 18px; right: 18px; width: 36px; height: 36px; border-radius: 999px; background: rgba(255,255,255,0.15); color: #fff; border: none; font-size: 18px; cursor: pointer; z-index: 1010; }
+  
   @media print {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
     body { background: #fff; padding: 0; }
     .toolbar { display: none; }
     #photo-lightbox { display: none !important; }
     .wrap { box-shadow: none; border-radius: 0; padding: 12px; max-width: 100%; }
     .section-card { background: #fff; border: 1px solid #eee; }
+    .media-card { break-inside: avoid !important; page-break-inside: avoid !important; }
   }
 </style>
 </head>
 <body>
   <div class="toolbar"><button onclick="window.print()">Imprimir / salvar como PDF</button></div>
+  
   <div id="photo-lightbox" onclick="this.classList.remove('open')">
     <button onclick="event.stopPropagation();document.getElementById('photo-lightbox').classList.remove('open')">✕</button>
-    <img id="photo-lightbox-img" src="${getUrlFoto(inspection.capaFoto?.src||inspection.capaFoto)}" alt=""/>
+    <div id="photo-lightbox-container" onclick="event.stopPropagation()">
+      <img id="photo-lightbox-img" src="" alt=""/>
+      <div id="photo-lightbox-marks"></div>
+      <div id="photo-lightbox-comment"></div>
+      <div id="photo-lightbox-date"></div>
+    </div>
   </div>
+
   <div class="wrap">
     <div style="height:6px;background:linear-gradient(90deg,#A23A4C,#c96a7a);border-radius:999px;margin-bottom:20px"></div>
     <div style="display:flex;align-items:flex-start;gap:16px;justify-content:space-between;margin-bottom:20px">
@@ -2129,7 +2185,7 @@ function buildReportHTML(inspection, logo) {
         <div>
           <h1 style="font-size:24px;margin:0;color:#4e1b26">VistorIA <span style="color:#A23A4C">—</span> Laudo de Vistoria</h1>
           <p style="font-size:12px;color:#93636d;margin:4px 0 0;font-weight:700">PEREIRA Gestão Imobiliária</p>
-          <p style="font-size:12px;color:#93636d;margin:2px 0 0">Vistoria de ${escapeHtml(inspection.tipo.toLowerCase())}</p>
+          <p style="font-size:12px;color:#93636d;margin:2px 0 0">Vistoria de ${escapeHtml((inspection.tipo || "").toLowerCase())}</p>
         </div>
       </div>
       ${inspection.status === "Finalizada" ? `<div style="border:2.5px solid #3fa76b;color:#3fa76b;border-radius:999px;padding:8px 16px;font-weight:700;font-size:12px;transform:rotate(-6deg);white-space:nowrap">✓ FINALIZADA<br/>${escapeHtml(fmtDate(inspection.dataVistoria))}</div>` : ""}
@@ -2141,12 +2197,12 @@ function buildReportHTML(inspection, logo) {
       <div><p class="eyebrow">Data</p>${escapeHtml(fmtDate(inspection.dataVistoria))}</div>
       <div><p class="eyebrow">Vistoriador</p>${escapeHtml(inspection.vistoriador || "—")}</div>
       <div style="grid-column:1 / -1"><p class="eyebrow">Endereço</p>${escapeHtml(enderecoCompleto(inspection.imovel) || "—")}</div>
-      ${inspection.imovel.cep ? `<div><p class="eyebrow">CEP</p>${escapeHtml(inspection.imovel.cep)}</div>` : ""}
-      <div><p class="eyebrow">Tipo de imóvel</p>${escapeHtml(inspection.imovel.tipoImovel)}</div>
-      <div><p class="eyebrow">Situação (mobiliário)</p>${escapeHtml(inspection.mobiliario)}</div>
-      ${inspection.imovel.metragem ? `<div><p class="eyebrow">Metragem</p>${escapeHtml(inspection.imovel.metragem)}</div>` : ""}
-      <div><p class="eyebrow">Proprietário</p>${escapeHtml(inspection.imovel.proprietario || "—")}</div>
-      <div><p class="eyebrow">Inquilino</p>${escapeHtml(inspection.imovel.inquilino || "—")}</div>
+      ${inspection.imovel?.cep ? `<div><p class="eyebrow">CEP</p>${escapeHtml(inspection.imovel.cep)}</div>` : ""}
+      <div><p class="eyebrow">Tipo de imóvel</p>${escapeHtml(inspection.imovel?.tipoImovel || "—")}</div>
+      <div><p class="eyebrow">Situação (mobiliário)</p>${escapeHtml(inspection.mobiliario || "—")}</div>
+      ${inspection.imovel?.metragem ? `<div><p class="eyebrow">Metragem</p>${escapeHtml(inspection.imovel.metragem)}</div>` : ""}
+      <div><p class="eyebrow">Proprietário</p>${escapeHtml(inspection.imovel?.proprietario || "—")}</div>
+      <div><p class="eyebrow">Inquilino</p>${escapeHtml(inspection.imovel?.inquilino || "—")}</div>
       <div style="grid-column:1 / -1;padding-top:6px;border-top:1px dashed #eee0da"><p class="eyebrow">Resumo</p><strong>${inspection.ambientes.length}</strong> ambientes &nbsp;·&nbsp; <strong>${totalItens}</strong> itens ${avarias > 0 ? `&nbsp;·&nbsp; <span style="color:#b23e2a;font-weight:700">${avarias} avarias</span>` : ""}</div>
     </div>
 
@@ -2160,12 +2216,71 @@ function buildReportHTML(inspection, logo) {
       ${sigHtml("Assinatura do locatário", inspection.signatures?.locatario)}
     </div>
   </div>
+
   <script>
     document.addEventListener('click', function (e) {
       var img = e.target.closest('.zoomable-photo');
       if (!img) return;
+      
       var lightbox = document.getElementById('photo-lightbox');
-      document.getElementById('photo-lightbox-img').src = img.src;
+      var lightboxImg = document.getElementById('photo-lightbox-img');
+      var marksContainer = document.getElementById('photo-lightbox-marks');
+      var commentContainer = document.getElementById('photo-lightbox-comment');
+      var dateContainer = document.getElementById('photo-lightbox-date');
+      
+      lightboxImg.src = img.src;
+      
+      marksContainer.innerHTML = '';
+      if (commentContainer) commentContainer.innerHTML = '';
+      if (dateContainer) dateContainer.innerHTML = '';
+
+      try {
+        var marcas = JSON.parse(img.getAttribute('data-marcas') || '[]');
+        marcas.forEach(function(p, i) {
+          var dot = document.createElement('div');
+          dot.style.position = 'absolute';
+          dot.style.left = p.x + '%';
+          dot.style.top = p.y + '%';
+          dot.style.transform = 'translate(-50%,-50%)';
+          dot.style.width = '24px';
+          dot.style.height = '24px';
+          dot.style.borderRadius = '50%';
+          dot.style.border = '2px solid #ffffff';
+          dot.style.background = '#E23B3B';
+          dot.style.color = '#ffffff';
+          dot.style.fontSize = '12px';
+          dot.style.fontWeight = '800';
+          dot.style.display = 'flex';
+          dot.style.alignItems = 'center';
+          dot.style.justifyContent = 'center';
+          dot.innerText = i + 1;
+          marksContainer.appendChild(dot);
+        });
+        
+        var comentario = img.getAttribute('data-comentario') || '';
+        if (comentario && commentContainer) {
+          var commentText = document.createElement('p');
+          commentText.textContent = '⚠ ' + comentario;
+          commentText.style.color = '#b23e2a';
+          commentText.style.fontWeight = '600';
+          commentText.style.margin = '8px 0 0';
+          commentText.style.fontSize = '14px';
+          commentText.style.textAlign = 'center';
+          commentContainer.appendChild(commentText);
+        }
+        
+        var dataString = img.getAttribute('data-date') || '';
+        if (dataString && dateContainer) {
+          var dateText = document.createElement('p');
+          dateText.textContent = dataString;
+          dateText.style.color = '#888';
+          dateText.style.fontSize = '12px';
+          dateText.style.textAlign = 'center';
+          dateText.style.margin = '4px 0 0';
+          dateContainer.appendChild(dateText);
+        }
+      } catch (err) {}
+      
       lightbox.classList.add('open');
     });
   </script>
@@ -2361,65 +2476,45 @@ function ReportView({ inspection, onUpdate, onClose, embedded = false }) {
                 <span className="mono font-bold flex items-center justify-center rounded-full" style={{ width: 20, height: 20, fontSize: 10, background: "var(--accent)", color: "#F3E4E7" }}>{String(ambIdx + 1).padStart(2, "0")}</span>
                 {amb.nome}
               </h2>
-              {(amb.fotos || []).length > 0 && (
-                <div className="mb-3">
-                  <p className="label mb-1.5">Fotos/vídeos gerais do ambiente</p>
-                  <div className="flex gap-2 flex-wrap">
-                    {amb.fotos.map((foto, fi) => (
-                      <div key={fi} className="text-center">
-                        <img src={getUrlFoto(foto.src)} alt="" loading="lazy" className="rounded-md object-cover cursor-zoom-in" style={{ width: 70, height: 70, border: "1px solid var(--line)" }} onClick={() => openLightbox(foto.src)} />
-                        {foto.date && <p className="text-[9px] mono mt-0.5" style={{ color: "var(--ink-soft)" }}>{fmtDateTime(foto.date)}</p>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
               <div className="grid gap-3">
                 {amb.itens.map((item) => {
-                  const camposPreenchidos = ITEM_FIELD_DEFS.filter((f) => (item.campos || {})[f.key]);
                   return (
                     <div key={item.id} className="text-sm">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium">{item.nome}</span>
-                        {item.semTeste ? (
-                          <span className="badge badge-neutral">Sem teste</span>
-                        ) : (
-                          <span className={`badge ${item.estado === "Bom" || item.estado === "Novo" ? "badge-good" : item.estado === "Regular" ? "badge-warn" : item.estado === "Péssimo" ? "badge-worse" : "badge-bad"}`}>{item.estado}</span>
-                        )}
-                        {item.temDano && <span className="badge badge-bad flex items-center gap-1"><AlertTriangle size={10} /> Avaria</span>}
+                        <span className={`badge ${item.estado === "Bom" || item.estado === "Novo" ? "badge-good" : item.estado === "Regular" ? "badge-warn" : item.estado === "Péssimo" ? "badge-worse" : "badge-bad"}`}>{item.estado}</span>
                       </div>
-                      {camposPreenchidos.length > 0 && (
-                        <p className="mt-1 text-xs" style={{ color: "var(--ink-soft)" }}>{camposPreenchidos.map((f) => `${f.label}: ${item.campos[f.key]}`).join(" · ")}</p>
-                      )}
                       {item.observacoes && <p className="mt-1" style={{ color: "var(--ink-soft)" }}>{item.observacoes}</p>}
-                      {item.temDano && item.descricaoDano && (
-                        <p className="mt-1" style={{ color: "var(--bad)" }}>Avaria: {item.descricaoDano}</p>
-                      )}
-                      {item.fotos.length > 0 && (
-                        <div className="flex gap-2 mt-2 flex-wrap">
-                          {item.fotos.map((foto, i) => {
-                            const marcasObj = foto.marcas || null;
-                            const pontos = Array.isArray(marcasObj) ? marcasObj : (marcasObj?.points || []);
-                            const comentarioMarcacao = Array.isArray(marcasObj) ? "" : (marcasObj?.comentario || "");
-                            return (
-                              <div key={i} className="text-center" style={{ maxWidth: 90 }}>
-                                <div className="relative inline-block" style={{ width: 70, height: 70 }}>
-                                  <img src={getUrlFoto(foto.src)} alt="" loading="lazy" className="rounded-md object-cover cursor-zoom-in" style={{ width: 70, height: 70, border: "1px solid var(--line)" }} onClick={() => openLightbox(foto.src)} />
-                                  {pontos.map((p, mi) => (
-                                    <div key={mi} style={{ position: "absolute", left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-50%)", width: 13, height: 13, borderRadius: "50%", border: "2px solid #E23B3B", background: "rgba(226,59,59,0.3)", color: "#fff", fontSize: 8, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{mi + 1}</div>
-                                  ))}
-                                </div>
-                                {foto.date && <p className="text-[9px] mono mt-0.5" style={{ color: "var(--ink-soft)" }}>{fmtDateTime(foto.date)}</p>}
-                                {comentarioMarcacao && <p className="text-[9px] mt-0.5" style={{ color: "var(--bad)" }}>{comentarioMarcacao}</p>}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
                     </div>
                   );
                 })}
               </div>
+
+              {(amb.fotos || []).length > 0 && (
+                <div className="mt-4">
+                  <p className="label mb-1.5">Fotos/vídeos gerais do ambiente</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {amb.fotos.map((foto, fi) => {
+                      const marcasObj = foto.marcas || null;
+                      const pontos = Array.isArray(marcasObj) ? marcasObj : (marcasObj?.points || []);
+                      const comentarioMarcacao = Array.isArray(marcasObj) ? "" : (marcasObj?.comentario || "");
+                      const rawDate = foto.createdAt || foto.timestamp || foto.date || foto.data;
+                      return (
+                        <div key={fi} className="text-center" style={{ maxWidth: 90 }}>
+                          <div className="relative inline-block" style={{ width: 70, height: 70 }}>
+                            <img src={getUrlFoto(foto.src || foto.url)} alt="" loading="lazy" className="rounded-md object-cover cursor-zoom-in" style={{ width: 70, height: 70, border: "1px solid var(--line)" }} onClick={() => openLightbox(foto)} />
+                            {pontos.map((p, mi) => (
+                              <div key={mi} style={{ position: "absolute", left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-50%)", width: 13, height: 13, borderRadius: "50%", border: "2px solid #E23B3B", background: "rgba(226,59,59,0.3)", color: "#fff", fontSize: 8, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{mi + 1}</div>
+                            ))}
+                          </div>
+                          {rawDate && <p className="text-[10px] mono mt-0.5" style={{ color: "var(--ink-soft)", fontSize: "10px" }}>{fmtDateTime(rawDate)}</p>}
+                          {comentarioMarcacao && <p className="text-[10px] mt-0.5" style={{ color: "var(--bad)", fontSize: "10px", fontWeight: "700" }}>⚠ {comentarioMarcacao}</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           ))}
 

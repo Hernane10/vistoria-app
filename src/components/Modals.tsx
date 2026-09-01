@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { useState } from "react";
 import { X, QrCode } from "lucide-react";
-import { getUrlFoto, qrCodeUrl, fichaText } from "../utils/helpers";
+import { getUrlFoto, qrCodeUrl, fichaText, fmtDateTime } from "../utils/helpers";
 
 export function PromptModal({ title, placeholder = "", defaultValue = "", confirmLabel = "Salvar", onSubmit, onCancel }) {
   const [value, setValue] = useState(defaultValue);
@@ -42,83 +42,44 @@ export function QrCodeModal({ inspection, onClose }) {
 export function Lightbox({ src, marcas = null, onClose }) {
   if (!src) return null;
 
-  // Extrai o caminho/URL correto da foto
+  // src agora é o objeto completo da foto
   const imageSource = typeof src === "object" ? (src.url || src.src) : src;
-  
-  // Trata marcações no formato array simples [ {x, y} ] ou objeto { points: [ {x, y} ], comentario: "" }
   const marcasAtivas = marcas || (typeof src === "object" ? src.marcas : null);
   const pontos = Array.isArray(marcasAtivas) ? marcasAtivas : (marcasAtivas?.points || []);
   const comentarioMarcacao = Array.isArray(marcasAtivas) ? "" : (marcasAtivas?.comentario || "");
+  const dataFoto = typeof src === "object" ? (src.date || src.createdAt || "") : "";
 
   return (
-    <div 
-      className="no-print" 
-      onClick={onClose} 
-      style={{ 
-        position: "fixed", 
-        inset: 0, 
-        background: "rgba(10,11,16,0.92)", 
-        zIndex: 1000, 
-        display: "flex", 
-        alignItems: "center", 
-        justifyContent: "center", 
-        padding: 24, 
-        cursor: "zoom-out" 
+    <div
+      className="no-print"
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(10,11,16,0.92)", zIndex: 1000,
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        padding: 24, cursor: "zoom-out",
       }}
     >
-      <button 
-        onClick={onClose} 
-        style={{ 
-          position: "absolute", 
-          top: 18, 
-          right: 18, 
-          width: 36, 
-          height: 36, 
-          borderRadius: 999, 
-          background: "rgba(255,255,255,0.12)", 
-          color: "#fff", 
-          display: "flex", 
-          alignItems: "center", 
-          justifyContent: "center" 
-        }}
-      >
-        <X size={18} />
-      </button>
+      <button onClick={onClose} style={{ position: "absolute", top: 18, right: 18, width: 36, height: 36, borderRadius: 999, background: "rgba(255,255,255,0.12)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}><X size={18} /></button>
 
-      <div className="relative" style={{ maxWidth: "94vw", maxHeight: "90vh" }}>
-        <img 
-          src={getUrlFoto(imageSource)} 
-          alt="Ampliada" 
-          style={{ maxWidth: "94vw", maxHeight: "90vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 8 }} 
-          onClick={(e) => e.stopPropagation()} 
-        />
-        
+      <div className="relative" style={{ maxWidth: "94vw", maxHeight: "85vh" }}>
+        <img src={getUrlFoto(imageSource)} alt="Ampliada" style={{ maxWidth: "94vw", maxHeight: "85vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 8 }} onClick={(e) => e.stopPropagation()} />
         {pontos.map((p, i) => (
-          <div 
-            key={i} 
-            style={{ 
-              position: "absolute", 
-              left: `${p.x}%`, 
-              top: `${p.y}%`, 
-              transform: "translate(-50%,-50%)", 
-              width: 26, 
-              height: 26, 
-              borderRadius: "50%", 
-              border: "3px solid #E23B3B", 
-              background: "rgba(226,59,59,0.25)", 
-              display: "flex", 
-              alignItems: "center", 
-              justifyContent: "center", 
-              fontSize: 12, 
-              fontWeight: 700, 
-              color: "#fff", 
-              cursor: "pointer" 
-            }} 
-            title={comentarioMarcacao || undefined}
-          >
-            {i + 1}
-          </div>
+          <div key={i} style={{ position: "absolute", left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-50%)", width: 26, height: 26, borderRadius: "50%", border: "3px solid #E23B3B", background: "rgba(226,59,59,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#fff", cursor: "pointer" }} title={comentarioMarcacao || undefined}>{i + 1}</div>
         ))}
+      </div>
+
+      {/* Rodapé com data e observação */}
+      <div style={{ marginTop: 16, textAlign: "center", color: "#fff" }}>
+        {dataFoto && (
+          <p style={{ fontSize: 14, margin: 0, opacity: 0.8 }}>
+            {fmtDateTime(dataFoto)}
+          </p>
+        )}
+        {comentarioMarcacao && (
+          <p style={{ fontSize: 16, margin: "8px 0 0", fontWeight: "600", color: "#ff6b6b" }}>
+            ⚠ {comentarioMarcacao}
+          </p>
+        )}
       </div>
     </div>
   );
