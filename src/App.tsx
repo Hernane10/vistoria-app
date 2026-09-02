@@ -2025,13 +2025,11 @@ function mediaHtml(foto) {
 function buildReportHTML(inspection, logo) {
   const totalItens = inspection.ambientes.reduce((a, amb) => a + amb.itens.length, 0);
   const avarias = inspection.ambientes.reduce((a, amb) => a + amb.itens.filter((it) => it.temDano).length, 0);
-
   const medidoresList = [
     { label: "Água", d: inspection.medidores?.agua },
     { label: "Energia", d: inspection.medidores?.energia },
     { label: "Gás", d: inspection.medidores?.gas },
   ].filter((m) => m.d && m.d.ativo);
-
   const chavesList = [
     ...CHAVE_TIPOS.map((t) => ({ label: t.label, ...(inspection.chaves?.[t.key] || {}) })),
     ...(inspection.chaves?.outras || []).map((o) => ({ label: o.nome, ...o })),
@@ -2043,80 +2041,54 @@ function buildReportHTML(inspection, logo) {
     "Péssimo": ["#f5d9dd", "#8e2e3d"], "Sem teste": ["#eef0f2", "#6b7280"],
   };
 
+  // GERAR AS FOTOS DA GALERIA
+  const gerarFotos = (fotos) => {
+    if (!fotos || !Array.isArray(fotos) || fotos.length === 0) return "";
+    return fotos.map((foto) => {
+      const src = getUrlFoto(foto.src || foto.url);
+      const marcas = foto.marcas || null;
+      const pontos = Array.isArray(marcas) ? marcas : (marcas?.points || []);
+      const comentario = Array.isArray(marcas) ? "" : (marcas?.comentario || "");
+      const dataFoto = foto.createdAt || foto.timestamp || foto.date || foto.data;
+      const formattedDate = dataFoto ? fmtDateTime(dataFoto) : "";
+      const tipo = foto.type || "image";
+      const marcacoesHTML = pontos.map((p, i) => `<div class="marcacao" style="left:${p.x}%;top:${p.y}%"><span>${i + 1}</span></div>`).join("");
+      const obsHTML = comentario ? `<p class="obs">⚠ ${escapeHtml(comentario)}</p>` : "";
+      
+      if (tipo === "video") {
+        return `<div class="media-item video-item"><video src="${src}" controls></video><div class="media-info">${formattedDate ? `<span class="data">${escapeHtml(formattedDate)}</span>` : ""}${obsHTML}</div></div>`;
+      }
+      return `<div class="media-item" onclick="abrirFoto('${src}', '${escapeHtml(comentario)}')">
+        <img src="${src}" class="zoomable-photo"/>
+        ${marcacoesHTML}
+        <div class="media-info">${formattedDate ? `<span class="data">${escapeHtml(formattedDate)}</span>` : ""}${obsHTML}</div>
+      </div>`;
+    }).join("");
+  };
+
   const ambientesHtml = inspection.ambientes.map((amb, ambIdx) => {
-    const fotosAmbienteHtml = (amb.fotos || []).length
-      ? `<div style="margin-bottom:14px"><p class="eyebrow">Fotos/vídeos gerais do ambiente</p><div class="media-grid">${amb.fotos.map(mediaHtml).join("")}</div></div>` : "";
-    
+    const fotosAmbienteHtml = gerarFotos(amb.fotos || []);
     const itensHtml = amb.itens.map((item) => {
       const camposPreenchidos = ITEM_FIELD_DEFS.filter((f) => (item.campos || {})[f.key]);
       const estadoLabel = item.semTeste ? "Sem teste" : item.estado;
       const [bg, fg] = estadoColors[estadoLabel] || estadoColors["Sem teste"];
-      
-      const camposLine = camposPreenchidos.length
-        ? `<p class="meta-line">${camposPreenchidos.map((f) => `<strong>${f.label}:</strong> ${escapeHtml(item.campos[f.key])}`).join(" &nbsp;·&nbsp; ")}</p>` : "";
+      const camposLine = camposPreenchidos.length ? `<p class="meta-line">${camposPreenchidos.map((f) => `<strong>${f.label}:</strong> ${escapeHtml(item.campos[f.key])}`).join(" &nbsp;·&nbsp; ")}</p>` : "";
       const obsLine = item.observacoes ? `<p class="obs-line">${escapeHtml(item.observacoes)}</p>` : "";
-      const danoLine = item.temDano && item.descricaoDano ? `<p class="dano-line">⚠ Avaria do item: ${escapeHtml(item.descricaoDano)}</p>` : "";
-      const fotosHtml = (item.fotos || []).length ? `<div class="media-grid" style="margin-top:8px">${item.fotos.map(mediaHtml).join("")}</div>` : "";
+      const danoLine = item.temDano && item.descricaoDano ? `<p class="dano-line">⚠ Avaria: ${escapeHtml(item.descricaoDano)}</p>` : "";
+      const fotosHtml = (item.fotos && item.fotos.length) ? `<div class="media-grid">${gerarFotos(item.fotos)}</div>` : "";
       
-      return `
-        <div class="item-card">
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
-            <strong style="font-size:14px">${escapeHtml(item.nome)}</strong>
-            <span class="pill" style="background:${bg};color:${fg}">${escapeHtml(estadoLabel)}</span>
-            ${item.temDano ? `<span class="pill" style="background:#fbe4e1;color:#b23e2a">Avaria</span>` : ""}
-          </div>
-          ${camposLine}${obsLine}${danoLine}${fotosHtml}
-        </div>`;
+      return `<div class="item-card"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><strong style="font-size:14px">${escapeHtml(item.nome)}</strong><span class="pill" style="background:${bg};color:${fg}">${escapeHtml(estadoLabel)}</span>${item.temDano ? `<span class="pill" style="background:#fbe4e1;color:#b23e2a">Avaria</span>` : ""}</div>${camposLine}${obsLine}${danoLine}${fotosHtml}</div>`;
     }).join("");
-
-    return `
-      <div class="section-card">
-        <h2 class="section-title"><span class="section-num">${String(ambIdx + 1).padStart(2, "0")}</span>${escapeHtml(amb.nome)}</h2>
-        ${fotosAmbienteHtml}
-        ${itensHtml}
-      </div>`;
+    return `<div class="section-card"><h2 class="section-title"><span class="section-num">${String(ambIdx + 1).padStart(2, "0")}</span>${escapeHtml(amb.nome)}</h2>${fotosAmbienteHtml ? `<p class="eyebrow">Fotos/vídeos gerais do ambiente</p><div class="media-grid">${fotosAmbienteHtml}</div>` : ""}${itensHtml}</div>`;
   }).join("");
 
-  const medidoresHtml = medidoresList.length ? `
-    <div class="section-card">
-      <h2 class="section-title"><span class="section-num" style="background:#3d7a57">💧</span>Medidores</h2>
-      ${medidoresList.map((m) => `
-        <div class="item-card">
-          <strong style="font-size:14px">${m.label}</strong>
-          <p class="meta-line">${[
-            m.d.numero && `<strong>Nº:</strong> ${m.d.numero}`,
-            m.d.leitura && `<strong>Leitura:</strong> ${m.d.leitura}${m.d.unidade ? " " + m.d.unidade : ""}`,
-            m.d.concessionaria && `<strong>Concessionária:</strong> ${m.d.concessionaria}`,
-          ].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>
-          ${m.d.observacoes ? `<p class="obs-line">${escapeHtml(m.d.observacoes)}</p>` : ""}
-          ${(m.d.fotos || []).length ? `<div class="media-grid" style="margin-top:8px">${m.d.fotos.map(mediaHtml).join("")}</div>` : ""}
-        </div>
-      `).join("")}
-    </div>` : "";
+  const medidoresHtml = medidoresList.length ? `<div class="section-card"><h2 class="section-title"><span class="section-num" style="background:#3d7a57">💧</span>Medidores</h2>${medidoresList.map((m) => `<div class="item-card"><strong style="font-size:14px">${m.label}</strong><p class="meta-line">${[m.d.numero && `<strong>Nº:</strong> ${m.d.numero}`, m.d.leitura && `<strong>Leitura:</strong> ${m.d.leitura}${m.d.unidade ? " " + m.d.unidade : ""}`, m.d.concessionaria && `<strong>Concessionária:</strong> ${m.d.concessionaria}`].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>${m.d.observacoes ? `<p class="obs-line">${escapeHtml(m.d.observacoes)}</p>` : ""}${m.d.fotos && m.d.fotos.length ? `<div class="media-grid">${gerarFotos(m.d.fotos)}</div>` : ""}</div>`).join("")}</div>` : "";
 
-  const chavesHtml = chavesList.length ? `
-    <div class="section-card">
-      <h2 class="section-title"><span class="section-num" style="background:#a97a1f">🔑</span>Chaves e acessos</h2>
-      ${chavesList.map((c) => `
-        <div class="item-card">
-          <strong style="font-size:14px">${escapeHtml(c.label)}</strong>
-          <p class="meta-line">${[c.quantidade && `<strong>Qtd.:</strong> ${c.quantidade}`, c.observacoes && escapeHtml(c.observacoes)].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>
-          ${(c.fotos || []).length ? `<div class="media-grid" style="margin-top:8px">${c.fotos.map(mediaHtml).join("")}</div>` : ""}
-        </div>
-      `).join("")}
-    </div>` : "";
+  const chavesHtml = chavesList.length ? `<div class="section-card"><h2 class="section-title"><span class="section-num" style="background:#a97a1f">🔑</span>Chaves e acessos</h2>${chavesList.map((c) => `<div class="item-card"><strong style="font-size:14px">${escapeHtml(c.label)}</strong><p class="meta-line">${[c.quantidade && `<strong>Qtd.:</strong> ${c.quantidade}`, c.observacoes && escapeHtml(c.observacoes)].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>${c.fotos && c.fotos.length ? `<div class="media-grid">${gerarFotos(c.fotos)}</div>` : ""}</div>`).join("")}</div>` : "";
 
-  const capaHtml = inspection.capaFoto ? `
-    <div style="margin-bottom:22px">
-      <img src="${getUrlFoto(inspection.capaFoto.src || inspection.capaFoto)}" class="zoomable-photo" style="width:100%;max-height:300px;object-fit:cover;border-radius:14px;cursor:zoom-in;display:block;box-shadow:0 4px 16px rgba(0,0,0,0.12)" />
-    </div>` : "";
+  const capaHtml = inspection.capaFoto ? `<div style="margin-bottom:22px"><img src="${getUrlFoto(inspection.capaFoto.src || inspection.capaFoto)}" class="zoomable-photo" style="width:100%;max-height:300px;object-fit:cover;border-radius:14px;cursor:zoom-in;display:block;box-shadow:0 4px 16px rgba(0,0,0,0.12)" /></div>` : "";
 
-  const sigHtml = (label, src) => `
-    <div style="flex:1;min-width:200px">
-      <p class="eyebrow">${label}</p>
-      ${src ? `<img src="${getUrlFoto(src)}" style="width:100%;height:90px;object-fit:contain;border:1px solid #e7dcd6;border-radius:10px;background:#fff" />` : `<div style="width:100%;height:90px;border:1.5px dashed #d9cec7;border-radius:10px"></div>`}
-      <div style="border-top:1px solid #e7dcd6;margin-top:36px;padding-top:4px;font-size:10px;text-align:center;color:#a8828a">Assinatura manual (se necessário)</div>
-    </div>`;
+  const sigHtml = (label, src) => `<div style="flex:1;min-width:200px"><p class="eyebrow">${label}</p>${src ? `<img src="${getUrlFoto(src)}" style="width:100%;height:90px;object-fit:contain;border:1px solid #e7dcd6;border-radius:10px;background:#fff" />` : `<div style="width:100%;height:90px;border:1.5px dashed #d9cec7;border-radius:10px"></div>`}<div style="border-top:1px solid #e7dcd6;margin-top:36px;padding-top:4px;font-size:10px;text-align:center;color:#a8828a">Assinatura manual (se necessário)</div></div>`;
 
   const logoHtml = logo ? `<img src="${getUrlFoto(logo)}" style="height:56px;max-width:150px;object-fit:contain;border-radius:8px" />` : "";
 
@@ -2142,38 +2114,33 @@ function buildReportHTML(inspection, logo) {
   .meta-line { font-size: 12px; color: #7a5a60; margin: 4px 0; line-height: 1.5; }
   .obs-line { font-size: 12.5px; color: #3a2a2e; margin: 6px 0; line-height: 1.5; }
   .dano-line { font-size: 12.5px; color: #b23e2a; font-weight: 600; margin: 6px 0; line-height: 1.5; }
-  .media-grid { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-start; align-items: flex-start; }
-  .media-card { width: 130px; border: 1px solid #eee0da; border-radius: 10px; overflow: hidden; background: #fff; box-shadow: 0 2px 6px rgba(40,20,25,0.06); break-inside: avoid; page-break-inside: avoid; flex-shrink: 0; }
-  
-  /* Lightbox Modal de Relatório */
-  #photo-lightbox { display: none; position: fixed; inset: 0; background: rgba(10,11,16,0.92); z-index: 1000; align-items: center; justify-content: center; padding: 24px; cursor: zoom-out; }
-  #photo-lightbox.open { display: flex; }
-  #photo-lightbox-container { position: relative; max-width: 94vw; max-height: 90vh; }
-  #photo-lightbox img { max-width: 94vw; max-height: 90vh; object-fit: contain; border-radius: 8px; display: block; }
-  #photo-lightbox button { position: absolute; top: 18px; right: 18px; width: 36px; height: 36px; border-radius: 999px; background: rgba(255,255,255,0.15); color: #fff; border: none; font-size: 18px; cursor: pointer; z-index: 1010; }
-  
-  @media print {
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    body { background: #fff; padding: 0; }
-    .toolbar { display: none; }
-    #photo-lightbox { display: none !important; }
-    .wrap { box-shadow: none; border-radius: 0; padding: 12px; max-width: 100%; }
-    .section-card { background: #fff; border: 1px solid #eee; }
-    .media-card { break-inside: avoid !important; page-break-inside: avoid !important; }
-  }
+  .media-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+  .media-item { position: relative; width: 130px; border: 1px solid #eee0da; border-radius: 10px; overflow: hidden; background: #fff; cursor: pointer; }
+  .media-item img { width: 100%; height: 120px; object-fit: cover; display: block; }
+  .media-item .marcacao { position: absolute; width: 18px; height: 18px; transform: translate(-50%,-50%); border-radius: 50%; border: 2px solid #fff; background: #E23B3B; color: #fff; font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  .media-item .media-info { padding: 6px 8px; }
+  .media-item .data { font-size: 10px; color: #8a6a72; font-family: 'JetBrains Mono', monospace; }
+  .media-item .obs { font-size: 10px; color: #b23e2a; font-weight: 600; margin: 2px 0 0; }
+  .video-item { width: 260px; cursor: default; }
+  .video-item video { width: 100%; height: 150px; object-fit: cover; }
+  /* Modal de zoom */
+  #modal { display: none; position: fixed; inset: 0; background: rgba(10,11,16,0.95); z-index: 2000; align-items: center; justify-content: center; }
+  #modal.open { display: flex; }
+  #modal img { max-width: 95vw; max-height: 85vh; object-fit: contain; border-radius: 12px; }
+  #modal .modal-info { position: absolute; bottom: 20px; left: 0; right: 0; text-align: center; color: #fff; padding: 10px; font-size: 14px; }
+  #modal .modal-info .obs { color: #ff6b6b; font-weight: 600; font-size: 16px; }
+  #modal .close { position: absolute; top: 20px; right: 20px; width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.15); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; cursor: pointer; }
+  @media print { body { background: #fff; padding: 0; } .toolbar { display: none; } #modal { display: none !important; } }
 </style>
 </head>
 <body>
   <div class="toolbar"><button onclick="window.print()">Imprimir / salvar como PDF</button></div>
-  
-  <div id="photo-lightbox" onclick="this.classList.remove('open')">
-    <button onclick="event.stopPropagation();document.getElementById('photo-lightbox').classList.remove('open')">✕</button>
-    <div id="photo-lightbox-container" onclick="event.stopPropagation()">
-      <img id="photo-lightbox-img" src="" alt=""/>
-      <div id="photo-lightbox-marks"></div>
-      <div id="photo-lightbox-comment"></div>
-      <div id="photo-lightbox-date"></div>
+
+  <div id="modal">
+    <div class="close" onclick="document.getElementById('modal').classList.remove('open')">✕</div>
+    <img id="modal-img" src="" alt="" />
+    <div class="modal-info">
+      <p id="modal-obs" style="margin:0"></p>
     </div>
   </div>
 
@@ -2218,71 +2185,14 @@ function buildReportHTML(inspection, logo) {
   </div>
 
   <script>
-    document.addEventListener('click', function (e) {
-      var img = e.target.closest('.zoomable-photo');
-      if (!img) return;
-      
-      var lightbox = document.getElementById('photo-lightbox');
-      var lightboxImg = document.getElementById('photo-lightbox-img');
-      var marksContainer = document.getElementById('photo-lightbox-marks');
-      var commentContainer = document.getElementById('photo-lightbox-comment');
-      var dateContainer = document.getElementById('photo-lightbox-date');
-      
-      lightboxImg.src = img.src;
-      
-      marksContainer.innerHTML = '';
-      if (commentContainer) commentContainer.innerHTML = '';
-      if (dateContainer) dateContainer.innerHTML = '';
-
-      try {
-        var marcas = JSON.parse(img.getAttribute('data-marcas') || '[]');
-        marcas.forEach(function(p, i) {
-          var dot = document.createElement('div');
-          dot.style.position = 'absolute';
-          dot.style.left = p.x + '%';
-          dot.style.top = p.y + '%';
-          dot.style.transform = 'translate(-50%,-50%)';
-          dot.style.width = '24px';
-          dot.style.height = '24px';
-          dot.style.borderRadius = '50%';
-          dot.style.border = '2px solid #ffffff';
-          dot.style.background = '#E23B3B';
-          dot.style.color = '#ffffff';
-          dot.style.fontSize = '12px';
-          dot.style.fontWeight = '800';
-          dot.style.display = 'flex';
-          dot.style.alignItems = 'center';
-          dot.style.justifyContent = 'center';
-          dot.innerText = i + 1;
-          marksContainer.appendChild(dot);
-        });
-        
-        var comentario = img.getAttribute('data-comentario') || '';
-        if (comentario && commentContainer) {
-          var commentText = document.createElement('p');
-          commentText.textContent = '⚠ ' + comentario;
-          commentText.style.color = '#b23e2a';
-          commentText.style.fontWeight = '600';
-          commentText.style.margin = '8px 0 0';
-          commentText.style.fontSize = '14px';
-          commentText.style.textAlign = 'center';
-          commentContainer.appendChild(commentText);
-        }
-        
-        var dataString = img.getAttribute('data-date') || '';
-        if (dataString && dateContainer) {
-          var dateText = document.createElement('p');
-          dateText.textContent = dataString;
-          dateText.style.color = '#888';
-          dateText.style.fontSize = '12px';
-          dateText.style.textAlign = 'center';
-          dateText.style.margin = '4px 0 0';
-          dateContainer.appendChild(dateText);
-        }
-      } catch (err) {}
-      
-      lightbox.classList.add('open');
-    });
+    function abrirFoto(src, obs) {
+      var modal = document.getElementById('modal');
+      var img = document.getElementById('modal-img');
+      var obsEl = document.getElementById('modal-obs');
+      img.src = src;
+      obsEl.innerHTML = obs;
+      modal.classList.add('open');
+    }
   </script>
 </body>
 </html>`;
